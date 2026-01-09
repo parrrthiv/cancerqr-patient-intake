@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CancerQR - Final Protocol</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <div class="flex items-center space-x-4">
+                    <a th:href="@{/dashboard}" class="text-2xl font-bold text-blue-600">🏥 CancerQR</a>
+                    <span class="text-gray-400">|</span>
+                    <span class="text-gray-600">Final Protocol</span>
+                </div>
+                <a th:href="@{/dashboard/patients}" class="text-blue-600 hover:text-blue-800">
+                    ← Back to Patients
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-4xl mx-auto px-4 py-8">
+        <!-- Success Message -->
+        <div th:if="${success}" class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+            <span th:text="${success}"></span>
+        </div>
+
+        <!-- Patient Header -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-6">
+            <div class="flex justify-between items-start">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-800" 
+                        th:text="${patient.name != null ? patient.name : 'Patient #' + patient.id.toString().substring(0,8)}">Patient Name</h1>
+                    <p class="text-gray-500 mt-1">
+                        <span th:text="${patient.cancerType}">Cancer Type</span> |
+                        <span th:text="${patient.age + ' years'}">Age</span> |
+                        Pain: <span th:text="${patient.painScale + '/10'}">5/10</span>
+                    </p>
+                </div>
+                <div th:if="${protocol != null}">
+                    <span th:if="${protocol.status.name() == 'APPROVED'}" 
+                          class="px-4 py-2 bg-green-100 text-green-600 rounded-full font-semibold">✅ Approved</span>
+                    <span th:if="${protocol.status.name() == 'PENDING_APPROVAL'}" 
+                          class="px-4 py-2 bg-yellow-100 text-yellow-600 rounded-full font-semibold">⏳ Pending Approval</span>
+                    <span th:if="${protocol.status.name() == 'SENT'}" 
+                          class="px-4 py-2 bg-blue-100 text-blue-600 rounded-full font-semibold">📤 Sent to Patient</span>
+                </div>
+            </div>
+        </div>
+
+        <div th:if="${protocol == null}" class="bg-white rounded-xl shadow-md p-12 text-center">
+            <p class="text-4xl mb-4">⏳</p>
+            <h2 class="text-xl font-semibold text-gray-800">Protocol Not Ready Yet</h2>
+            <p class="text-gray-500 mt-2">All 8 tumor board reviews must be completed before the final protocol is generated.</p>
+        </div>
+
+        <div th:if="${protocol != null}" class="space-y-6">
+            <!-- ECS Protocol -->
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">🌿 ECS Products</h2>
+                <div class="flex flex-wrap gap-2">
+                    <span th:each="product : ${protocol.ecsProtocol?.products}" 
+                          class="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm"
+                          th:text="${product}">Product</span>
+                    <span th:if="${protocol.ecsProtocol?.products == null or #lists.isEmpty(protocol.ecsProtocol.products)}"
+                          class="text-gray-500">No ECS products selected</span>
+                </div>
+            </div>
+
+            <!-- Diet & Fasting -->
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">🥗 Diet & Fasting</h2>
+                <div class="grid grid-cols-3 gap-4">
+                    <div>
+                        <span class="text-gray-500 text-sm">Diet Protocol</span>
+                        <p class="font-semibold" th:text="${protocol.dietFastingProtocol?.diet ?: 'Not specified'}">Diet</p>
+                    </div>
+                    <div>
+                        <span class="text-gray-500 text-sm">Fasting Protocol</span>
+                        <p class="font-semibold" th:text="${protocol.dietFastingProtocol?.fasting ?: 'Not specified'}">Fasting</p>
+                    </div>
+                    <div>
+                        <span class="text-gray-500 text-sm">Lifestyle</span>
+                        <p class="font-semibold text-red-600" th:text="${protocol.dietFastingProtocol?.lifestyle ?: 'No Sugar'}">No Sugar</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mushrooms -->
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">🍄 Functional Mushrooms</h2>
+                <div class="flex flex-wrap gap-2">
+                    <span th:each="mushroom : ${protocol.mushroomProtocol?.products}" 
+                          class="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm"
+                          th:text="${mushroom}">Mushroom</span>
+                    <span th:if="${protocol.mushroomProtocol?.products == null or #lists.isEmpty(protocol.mushroomProtocol.products)}"
+                          class="text-gray-500">No mushrooms selected</span>
+                </div>
+            </div>
+
+            <!-- Herbs -->
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">🌱 Anti-Cancer Herbs</h2>
+                <div class="flex flex-wrap gap-2">
+                    <span th:each="herb : ${protocol.herbProtocol?.products}" 
+                          class="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-sm"
+                          th:text="${herb}">Herb</span>
+                    <span th:if="${protocol.herbProtocol?.products == null or #lists.isEmpty(protocol.herbProtocol.products)}"
+                          class="text-gray-500">No herbs selected</span>
+                </div>
+            </div>
+
+            <!-- Repurposed Drugs -->
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">💊 Repurposed Drugs</h2>
+                <div class="flex flex-wrap gap-2">
+                    <span th:each="drug : ${protocol.drugProtocol?.products}" 
+                          class="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm"
+                          th:text="${drug}">Drug</span>
+                    <span th:if="${protocol.drugProtocol?.products == null or #lists.isEmpty(protocol.drugProtocol.products)}"
+                          class="text-gray-500">No drugs selected</span>
+                </div>
+            </div>
+
+            <!-- Specialty Treatments -->
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">⭐ Specialty Treatments</h2>
+                <div class="flex flex-wrap gap-2">
+                    <span th:each="treatment : ${protocol.specialtyProtocol?.treatments}" 
+                          class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm"
+                          th:text="${treatment}">Treatment</span>
+                    <span th:if="${protocol.specialtyProtocol?.treatments == null or #lists.isEmpty(protocol.specialtyProtocol.treatments)}"
+                          class="text-gray-500">No specialty treatments</span>
+                </div>
+            </div>
+
+            <!-- Doctor Notes -->
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">📝 Tumor Board Notes</h2>
+                <div class="prose max-w-none" th:utext="${#strings.replace(protocol.consolidatedNotes, T(System).lineSeparator(), '&lt;br/&gt;')}">
+                    Notes will appear here
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="flex justify-end space-x-4">
+                <form th:if="${protocol.status.name() == 'PENDING_APPROVAL'}" 
+                      th:action="@{/dashboard/protocol/{id}/approve(id=${protocol.id})}" method="post">
+                    <button type="submit" class="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold">
+                        ✅ Approve Protocol
+                    </button>
+                </form>
+                <button th:if="${protocol.status.name() == 'APPROVED'}" 
+                        class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold"
+                        onclick="alert('Send to patient via WhatsApp - Coming soon!')">
+                    📤 Send to Patient
+                </button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

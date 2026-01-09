@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CancerQR - All Patients</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <div class="flex items-center space-x-4">
+                    <a th:href="@{/dashboard}" class="text-2xl font-bold text-blue-600">🏥 CancerQR</a>
+                    <span class="text-gray-400">|</span>
+                    <span class="text-gray-600">All Patients</span>
+                </div>
+                <a th:href="@{/dashboard}" class="text-blue-600 hover:text-blue-800">
+                    ← Back to Dashboard
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6">👥 All Patients</h1>
+
+        <div class="bg-white rounded-xl shadow-md overflow-hidden">
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr class="text-left text-gray-600 text-sm">
+                        <th class="px-6 py-4">Patient</th>
+                        <th class="px-6 py-4">Cancer Type</th>
+                        <th class="px-6 py-4">Age</th>
+                        <th class="px-6 py-4">Pain</th>
+                        <th class="px-6 py-4">Review Progress</th>
+                        <th class="px-6 py-4">Protocol Status</th>
+                        <th class="px-6 py-4">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="data : ${patientData}" class="border-t hover:bg-gray-50">
+                        <td class="px-6 py-4">
+                            <div class="font-semibold text-gray-800" 
+                                 th:text="${data.patient.name != null ? data.patient.name : 'Patient #' + data.patient.id.toString().substring(0,8)}">Name</div>
+                            <div class="text-xs text-gray-500" th:text="${data.patient.whatsappNumber}">Phone</div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 bg-red-100 text-red-600 text-xs rounded-full" 
+                                  th:text="${data.patient.cancerType != null ? data.patient.cancerType : 'Not Set'}">Cancer</span>
+                        </td>
+                        <td class="px-6 py-4" th:text="${data.patient.age != null ? data.patient.age : '-'}">45</td>
+                        <td class="px-6 py-4">
+                            <span th:if="${data.patient.painScale != null}" 
+                                  th:text="${data.patient.painScale} + '/10'"
+                                  th:class="${data.patient.painScale >= 7 ? 'text-red-600 font-semibold' : 'text-gray-600'}">5/10</span>
+                            <span th:unless="${data.patient.painScale != null}">-</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <div class="flex items-center space-x-2">
+                                <div class="w-24 bg-gray-200 rounded-full h-2">
+                                    <div class="bg-green-500 h-2 rounded-full" 
+                                         th:style="'width: ' + (${data.reviewStatus.completed} * 12.5) + '%'"></div>
+                                </div>
+                                <span class="text-xs text-gray-500" th:text="${data.reviewStatus.completed} + '/8'">0/8</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <span th:if="${data.hasProtocol and data.protocolStatus.name() == 'APPROVED'}" 
+                                  class="px-2 py-1 bg-green-100 text-green-600 text-xs rounded-full">Approved</span>
+                            <span th:if="${data.hasProtocol and data.protocolStatus.name() == 'PENDING_APPROVAL'}" 
+                                  class="px-2 py-1 bg-yellow-100 text-yellow-600 text-xs rounded-full">Pending Approval</span>
+                            <span th:unless="${data.hasProtocol}" 
+                                  class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">In Review</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <div class="flex space-x-2">
+                                <a th:href="@{/dashboard/patient/{id}(id=${data.patient.id})}"
+                                   class="text-blue-600 hover:text-blue-800 text-sm">Review</a>
+                                <a th:if="${data.hasProtocol}" 
+                                   th:href="@{/dashboard/protocol/{id}(id=${data.patient.id})}"
+                                   class="text-green-600 hover:text-green-800 text-sm">Protocol</a>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div th:if="${#lists.isEmpty(patientData)}" class="text-center py-12 text-gray-500">
+                <p class="text-4xl mb-2">📭</p>
+                <p>No patients yet.</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,379 @@
+{
+  "info": {
+    "_postman_id": "cancer-intake-system",
+    "name": "Cancer Patient Intake System",
+    "description": "API collection for testing the Cancer Patient Intake System WhatsApp integration",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080/api",
+      "type": "string"
+    },
+    {
+      "key": "whatsapp_phone_number_id",
+      "value": "your-phone-number-id",
+      "type": "string"
+    },
+    {
+      "key": "verify_token",
+      "value": "your-verify-token",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "item": [
+        {
+          "name": "Health Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/actuator/health",
+              "host": ["{{base_url}}"],
+              "path": ["actuator", "health"]
+            }
+          }
+        },
+        {
+          "name": "Application Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/actuator/info",
+              "host": ["{{base_url}}"],
+              "path": ["actuator", "info"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "WhatsApp Webhook",
+      "item": [
+        {
+          "name": "Verify Webhook",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp?hub.mode=subscribe&hub.verify_token={{verify_token}}&hub.challenge=test_challenge_123",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"],
+              "query": [
+                {
+                  "key": "hub.mode",
+                  "value": "subscribe"
+                },
+                {
+                  "key": "hub.verify_token",
+                  "value": "{{verify_token}}"
+                },
+                {
+                  "key": "hub.challenge",
+                  "value": "test_challenge_123"
+                }
+              ]
+            },
+            "description": "Simulates WhatsApp webhook verification"
+          }
+        },
+        {
+          "name": "Simulate Text Message - Hello",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Test Patient\"\n                },\n                \"wa_id\": \"919876543210\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543210\",\n                \"id\": \"wamid.test123\",\n                \"timestamp\": \"1234567890\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"Hello\"\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Simulates initial message from patient"
+          }
+        },
+        {
+          "name": "Simulate Text Message - Consent YES",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Test Patient\"\n                },\n                \"wa_id\": \"919876543210\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543210\",\n                \"id\": \"wamid.test124\",\n                \"timestamp\": \"1234567891\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"YES\"\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Simulates consent response"
+          }
+        },
+        {
+          "name": "Simulate Text Message - Age",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Test Patient\"\n                },\n                \"wa_id\": \"919876543210\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543210\",\n                \"id\": \"wamid.test125\",\n                \"timestamp\": \"1234567892\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"55\"\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Simulates age input"
+          }
+        },
+        {
+          "name": "Simulate Text Message - Weight",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Test Patient\"\n                },\n                \"wa_id\": \"919876543210\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543210\",\n                \"id\": \"wamid.test126\",\n                \"timestamp\": \"1234567893\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"72.5\"\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Simulates weight input"
+          }
+        },
+        {
+          "name": "Simulate Text Message - Pain Scale",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Test Patient\"\n                },\n                \"wa_id\": \"919876543210\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543210\",\n                \"id\": \"wamid.test127\",\n                \"timestamp\": \"1234567894\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"6\"\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Simulates pain scale input"
+          }
+        },
+        {
+          "name": "Simulate Interactive Response - Pain Scale",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Test Patient\"\n                },\n                \"wa_id\": \"919876543210\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543210\",\n                \"id\": \"wamid.test128\",\n                \"timestamp\": \"1234567895\",\n                \"type\": \"interactive\",\n                \"interactive\": {\n                  \"type\": \"list_reply\",\n                  \"list_reply\": {\n                    \"id\": \"pain_7\",\n                    \"title\": \"7\",\n                    \"description\": \"Severe pain\"\n                  }\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Simulates interactive pain scale selection"
+          }
+        },
+        {
+          "name": "Simulate Text Message - Diagnosis Date",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Test Patient\"\n                },\n                \"wa_id\": \"919876543210\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543210\",\n                \"id\": \"wamid.test129\",\n                \"timestamp\": \"1234567896\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"2024-01-15\"\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Simulates diagnosis date input"
+          }
+        },
+        {
+          "name": "Simulate Image Upload",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Test Patient\"\n                },\n                \"wa_id\": \"919876543210\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543210\",\n                \"id\": \"wamid.test130\",\n                \"timestamp\": \"1234567897\",\n                \"type\": \"image\",\n                \"image\": {\n                  \"id\": \"media-id-12345\",\n                  \"mime_type\": \"image/jpeg\",\n                  \"sha256\": \"abc123\",\n                  \"caption\": \"PET Scan Report\"\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Simulates image upload (PET scan)"
+          }
+        },
+        {
+          "name": "Simulate Document Upload",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Test Patient\"\n                },\n                \"wa_id\": \"919876543210\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543210\",\n                \"id\": \"wamid.test131\",\n                \"timestamp\": \"1234567898\",\n                \"type\": \"document\",\n                \"document\": {\n                  \"id\": \"media-id-67890\",\n                  \"mime_type\": \"application/pdf\",\n                  \"sha256\": \"def456\",\n                  \"filename\": \"blood_report.pdf\",\n                  \"caption\": \"Blood Report\"\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Simulates PDF upload (blood report)"
+          }
+        },
+        {
+          "name": "Simulate Message Status Update",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"statuses\": [\n              {\n                \"id\": \"wamid.test123\",\n                \"recipient_id\": \"919876543210\",\n                \"status\": \"delivered\",\n                \"timestamp\": \"1234567899\",\n                \"conversation\": {\n                  \"id\": \"conv-123\",\n                  \"origin\": {\n                    \"type\": \"user_initiated\"\n                  }\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Simulates message delivery status update"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Invalid Input Tests",
+      "item": [
+        {
+          "name": "Invalid Age - Text",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Test Patient\"\n                },\n                \"wa_id\": \"919876543211\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543211\",\n                \"id\": \"wamid.invalid1\",\n                \"timestamp\": \"1234567900\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"forty-five\"\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Test invalid age input (text instead of number)"
+          }
+        },
+        {
+          "name": "Invalid Weight - Over Limit",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Test Patient\"\n                },\n                \"wa_id\": \"919876543212\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543212\",\n                \"id\": \"wamid.invalid2\",\n                \"timestamp\": \"1234567901\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"500\"\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Test invalid weight (over 300kg)"
+          }
+        },
+        {
+          "name": "Invalid Date - Future Date",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [\n    {\n      \"id\": \"{{whatsapp_phone_number_id}}\",\n      \"changes\": [\n        {\n          \"value\": {\n            \"messaging_product\": \"whatsapp\",\n            \"metadata\": {\n              \"display_phone_number\": \"1234567890\",\n              \"phone_number_id\": \"{{whatsapp_phone_number_id}}\"\n            },\n            \"contacts\": [\n              {\n                \"profile\": {\n                  \"name\": \"Test Patient\"\n                },\n                \"wa_id\": \"919876543213\"\n              }\n            ],\n            \"messages\": [\n              {\n                \"from\": \"919876543213\",\n                \"id\": \"wamid.invalid3\",\n                \"timestamp\": \"1234567902\",\n                \"type\": \"text\",\n                \"text\": {\n                  \"body\": \"2030-01-01\"\n                }\n              }\n            ]\n          },\n          \"field\": \"messages\"\n        }\n      ]\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/webhook/whatsapp",
+              "host": ["{{base_url}}"],
+              "path": ["webhook", "whatsapp"]
+            },
+            "description": "Test invalid diagnosis date (future date)"
+          }
+        }
+      ]
+    }
+  ]
+}

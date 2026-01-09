@@ -1,0 +1,123 @@
+package com.oncology.intake.entity;
+
+import jakarta.persistence.*;
+import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Analysis entity storing the results of medicine suggestion engine.
+ * Contains versioned formula outputs and full audit trail.
+ * 
+ * IMPORTANT: All analyses include mandatory disclaimers and are
+ * clearly marked as initial suggestions requiring physician review.
+ */
+@Entity
+@Table(name = "analyses", indexes = {
+    @Index(name = "idx_analysis_patient_id", columnList = "patient_id"),
+    @Index(name = "idx_analysis_created_at", columnList = "created_at"),
+    @Index(name = "idx_formula_version", columnList = "formula_version")
+})
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class Analysis {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "patient_id", nullable = false)
+    private Patient patient;
+
+    @Column(name = "formula_version", nullable = false, length = 20)
+    private String formulaVersion;
+
+    /**
+     * JSON object containing computed metrics from the formula engine:
+     * - pain_category
+     * - weight_category
+     * - age_category
+     * - days_since_diagnosis
+     * - applied_rules
+     * - dose_adjustments
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "derived_metrics_json", columnDefinition = "clob")
+    private Map<String, Object> derivedMetricsJson;
+
+    /**
+     * JSON array of recommended medicines with:
+     * - name
+     * - category
+     * - dose
+     * - frequency
+     * - duration
+     * - notes
+     * - requires_specialist_review flag
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "recommended_medicines_json", columnDefinition = "clob")
+    private Map<String, Object> recommendedMedicinesJson;
+
+    /**
+     * JSON object containing supportive care recommendations
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "supportive_care_json", columnDefinition = "clob")
+    private Map<String, Object> supportiveCareJson;
+
+    /**
+     * JSON array of alerts/flags triggered by the analysis
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "alerts_json", columnDefinition = "clob")
+    private Map<String, Object> alertsJson;
+
+    @Column(name = "assessment_summary", columnDefinition = "TEXT")
+    private String assessmentSummary;
+
+    @Column(name = "disclaimer_text", nullable = false, columnDefinition = "TEXT")
+    private String disclaimerText;
+
+    @Column(name = "requires_urgent_review")
+    @Builder.Default
+    private Boolean requiresUrgentReview = false;
+
+    @Column(name = "sent_to_patient")
+    @Builder.Default
+    private Boolean sentToPatient = false;
+
+    @Column(name = "sent_at")
+    private LocalDateTime sentAt;
+
+    @Column(name = "reviewed_by_physician")
+    @Builder.Default
+    private Boolean reviewedByPhysician = false;
+
+    @Column(name = "physician_review_notes", columnDefinition = "TEXT")
+    private String physicianReviewNotes;
+
+    @Column(name = "physician_reviewed_at")
+    private LocalDateTime physicianReviewedAt;
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    /**
+     * Input snapshot for audit purposes - captures the exact
+     * patient data used for this analysis
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "input_snapshot_json", columnDefinition = "clob")
+    private Map<String, Object> inputSnapshotJson;
+}
