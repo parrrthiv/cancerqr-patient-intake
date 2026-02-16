@@ -38,14 +38,23 @@ public class PatientIntakeService {
      */
     @Transactional
     public Patient findOrCreatePatient(String whatsappNumber) {
+        return findOrCreatePatient(whatsappNumber, null);
+    }
+
+    @Transactional
+    public Patient findOrCreatePatient(String whatsappNumber, String contactName) {
         return patientRepository.findByWhatsappNumber(whatsappNumber)
                 .map(patient -> {
                     patient.setLastInteractionAt(LocalDateTime.now());
+                    if (patient.getName() == null && contactName != null) {
+                        patient.setName(contactName);
+                    }
                     return patientRepository.save(patient);
                 })
                 .orElseGet(() -> {
                     Patient newPatient = Patient.builder()
                             .whatsappNumber(whatsappNumber)
+                            .name(contactName)
                             .conversationState(ConversationState.INITIAL)
                             .lastInteractionAt(LocalDateTime.now())
                             .build();

@@ -130,10 +130,10 @@ public class ConversationService {
      * Process an incoming text message
      */
     @Async
-    public void processTextMessage(String whatsappNumber, String messageText, String messageId) {
+    public void processTextMessage(String whatsappNumber, String messageText, String messageId, String contactName) {
         log.info("Processing text message from: {}", maskNumber(whatsappNumber));
-        
-        Patient patient = patientIntakeService.findOrCreatePatient(whatsappNumber);
+
+        Patient patient = patientIntakeService.findOrCreatePatient(whatsappNumber, contactName);
         ConversationState currentState = patient.getConversationState();
         
         auditService.logWhatsAppEvent(patient.getId(), AuditAction.WHATSAPP_MESSAGE_RECEIVED,

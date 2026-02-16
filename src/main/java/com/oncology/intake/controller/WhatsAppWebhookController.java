@@ -118,20 +118,30 @@ public class WhatsAppWebhookController {
      * Process incoming messages
      */
     private void processMessages(List<Message> messages, List<Contact> contacts) {
+        // Extract contact name from the contacts list
+        String contactName = null;
+        if (contacts != null && !contacts.isEmpty()) {
+            Contact contact = contacts.get(0);
+            if (contact.getProfile() != null) {
+                contactName = contact.getProfile().getName();
+            }
+        }
+
         for (Message message : messages) {
             String from = message.getFrom();
             String messageId = message.getId();
             String messageType = message.getType();
-            
+
             log.info("Processing {} message from: {}", messageType, maskNumber(from));
-            
+
             switch (messageType) {
                 case "text" -> {
                     if (message.getText() != null) {
                         conversationService.processTextMessage(
-                                from, 
-                                message.getText().getBody(), 
-                                messageId
+                                from,
+                                message.getText().getBody(),
+                                messageId,
+                                contactName
                         );
                     }
                 }
