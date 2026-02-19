@@ -59,7 +59,7 @@ public class AuditLog {
     private String userAgent;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "metadata_json", columnDefinition = "clob")
+    @Column(name = "metadata_json", columnDefinition = "text")
     private Map<String, Object> metadataJson;
 
     @Column(name = "success")

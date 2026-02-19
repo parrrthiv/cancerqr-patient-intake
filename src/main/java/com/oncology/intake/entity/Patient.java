@@ -128,6 +128,7 @@ public class Patient {
     public enum ConversationState {
         INITIAL,
         AWAITING_CONSENT,
+        ASK_CANCER_TYPE,
         ASK_AGE,
         ASK_WEIGHT,
         ASK_PAIN_SCALE,

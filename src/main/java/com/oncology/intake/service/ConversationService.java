@@ -1,5 +1,6 @@
 package com.oncology.intake.service;
 
+import com.oncology.intake.config.CancerQRProtocolConfig;
 import com.oncology.intake.dto.AnalysisDto.AnalysisResult;
 import com.oncology.intake.dto.AnalysisDto.FormattedAnalysisMessage;
 import com.oncology.intake.dto.WhatsAppWebhookDto.*;
@@ -17,6 +18,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,6 +38,8 @@ public class ConversationService {
     private final WhatsAppClientService whatsAppClient;
     private final AnalysisService analysisService;
     private final AuditService auditService;
+    private final TumorBoardService tumorBoardService;
+    private final CancerQRProtocolConfig protocolConfig;
 
     // Validation patterns
     private static final Pattern AGE_PATTERN = Pattern.compile("^\\d{1,3}$");
@@ -143,13 +149,13 @@ public class ConversationService {
             switch (currentState) {
                 case INITIAL -> handleInitialState(patient);
                 case AWAITING_CONSENT -> handleConsentResponse(patient, messageText);
+                case ASK_CANCER_TYPE -> handleCancerTypeInput(patient, messageText);
                 case ASK_AGE -> handleAgeInput(patient, messageText);
                 case ASK_WEIGHT -> handleWeightInput(patient, messageText);
                 case ASK_PAIN_SCALE -> handlePainScaleInput(patient, messageText);
                 case ASK_DIAGNOSIS_DATE -> handleDiagnosisDateInput(patient, messageText);
-                case ASK_PET_SCAN, ASK_BLOOD_REPORT -> 
-                        sendMessage(patient.getWhatsappNumber(), 
-                                "Please upload the requested document as an image or PDF.");
+                case ASK_PET_SCAN, ASK_BLOOD_REPORT ->
+                        handleUploadOrSkip(patient, messageText);
                 case PROCESSING -> sendMessage(patient.getWhatsappNumber(), 
                         "⏳ Your assessment is being processed. Please wait...");
                 case RESULT_SENT, COMPLETED -> handleCompletedState(patient, messageText);
@@ -224,11 +230,11 @@ public class ConversationService {
 
     private void handleConsentResponse(Patient patient, String messageText) {
         String response = messageText.trim().toUpperCase();
-        
+
         if (response.equals("YES") || response.equals("Y")) {
             patientIntakeService.recordConsent(patient.getId());
-            sendMessage(patient.getWhatsappNumber(), ASK_AGE_MESSAGE);
-            patientIntakeService.updateConversationState(patient.getId(), ConversationState.ASK_AGE);
+            sendMessage(patient.getWhatsappNumber(), buildCancerTypeMessage());
+            patientIntakeService.updateConversationState(patient.getId(), ConversationState.ASK_CANCER_TYPE);
         } else if (response.equals("NO") || response.equals("N")) {
             sendMessage(patient.getWhatsappNumber(), 
                     "Thank you. Your data will not be collected. " +
@@ -238,6 +244,69 @@ public class ConversationService {
             sendMessage(patient.getWhatsappNumber(), 
                     "Please reply *YES* to continue or *NO* to stop.");
         }
+    }
+
+    private void handleCancerTypeInput(Patient patient, String messageText) {
+        String input = messageText.trim();
+
+        // Build the ordered list of cancer types from the protocol config
+        List<Map.Entry<String, CancerQRProtocolConfig.CancerProtocol>> cancerTypes = getCancerTypeList();
+
+        // Try numeric selection first
+        try {
+            int selection = Integer.parseInt(input);
+            if (selection >= 1 && selection <= cancerTypes.size()) {
+                Map.Entry<String, CancerQRProtocolConfig.CancerProtocol> selected = cancerTypes.get(selection - 1);
+                String cancerTypeId = selected.getKey();
+                String cancerTypeName = selected.getValue().getName();
+
+                patientIntakeService.updateCancerType(patient.getId(), cancerTypeId);
+                sendMessage(patient.getWhatsappNumber(),
+                        String.format("✅ Cancer type recorded: %s\n\n", cancerTypeName) + ASK_AGE_MESSAGE);
+                patientIntakeService.updateConversationState(patient.getId(), ConversationState.ASK_AGE);
+                return;
+            }
+        } catch (NumberFormatException ignored) {
+            // Not a number, try text match
+        }
+
+        // Try text match (case-insensitive partial match against cancer type names)
+        for (Map.Entry<String, CancerQRProtocolConfig.CancerProtocol> entry : cancerTypes) {
+            String name = entry.getValue().getName();
+            if (name.equalsIgnoreCase(input) || name.toLowerCase().contains(input.toLowerCase())) {
+                patientIntakeService.updateCancerType(patient.getId(), entry.getKey());
+                sendMessage(patient.getWhatsappNumber(),
+                        String.format("✅ Cancer type recorded: %s\n\n", name) + ASK_AGE_MESSAGE);
+                patientIntakeService.updateConversationState(patient.getId(), ConversationState.ASK_AGE);
+                return;
+            }
+        }
+
+        // Invalid input
+        sendMessage(patient.getWhatsappNumber(),
+                "❌ Please select a valid cancer type by entering a number (1-" + cancerTypes.size() + ") or the cancer type name.");
+    }
+
+    private String buildCancerTypeMessage() {
+        StringBuilder msg = new StringBuilder();
+        msg.append("🏥 *What type of cancer have you been diagnosed with?*\n\n");
+        msg.append("Please select by entering the number:\n\n");
+
+        List<Map.Entry<String, CancerQRProtocolConfig.CancerProtocol>> cancerTypes = getCancerTypeList();
+        int index = 1;
+        for (Map.Entry<String, CancerQRProtocolConfig.CancerProtocol> entry : cancerTypes) {
+            msg.append(String.format("%d. %s\n", index++, entry.getValue().getName()));
+        }
+
+        return msg.toString();
+    }
+
+    private List<Map.Entry<String, CancerQRProtocolConfig.CancerProtocol>> getCancerTypeList() {
+        Map<String, CancerQRProtocolConfig.CancerProtocol> protocols = protocolConfig.getCancerProtocols();
+        if (protocols == null || protocols.isEmpty()) {
+            return List.of();
+        }
+        return new ArrayList<>(protocols.entrySet());
     }
 
     private void handleAgeInput(Patient patient, String messageText) {
@@ -367,6 +436,31 @@ public class ConversationService {
         patientIntakeService.resetPatientIntake(patient.getId());
     }
 
+    // =============== Upload Skip (for local testing) ===============
+
+    private void handleUploadOrSkip(Patient patient, String messageText) {
+        if ("SKIP".equalsIgnoreCase(messageText.trim())) {
+            ConversationState currentState = patient.getConversationState();
+            if (currentState == ConversationState.ASK_PET_SCAN) {
+                log.info("Skipping PET scan upload for patient: {}", patient.getId());
+                sendMessage(patient.getWhatsappNumber(),
+                        "⏭ PET Scan upload skipped.\n\n" + ASK_BLOOD_REPORT_MESSAGE);
+                patientIntakeService.updateConversationState(
+                        patient.getId(), ConversationState.ASK_BLOOD_REPORT);
+            } else if (currentState == ConversationState.ASK_BLOOD_REPORT) {
+                log.info("Skipping blood report upload for patient: {}", patient.getId());
+                sendMessage(patient.getWhatsappNumber(), PROCESSING_MESSAGE);
+                patientIntakeService.updateConversationState(
+                        patient.getId(), ConversationState.PROCESSING);
+                generateAndSendAnalysis(patient);
+            }
+        } else {
+            sendMessage(patient.getWhatsappNumber(),
+                    "Please upload the requested document as an image or PDF.\n" +
+                    "Type *SKIP* to skip this step.");
+        }
+    }
+
     // =============== Media Processing ===============
 
     private void processAndStoreMedia(Patient patient, MediaContent media, 
@@ -453,7 +547,10 @@ public class ConversationService {
             
             // Send completion message
             sendMessage(patient.getWhatsappNumber(), COMPLETION_MESSAGE);
-            
+
+            // Create tumor board review tasks so patient appears on dashboard
+            tumorBoardService.createReviewTasksForPatient(patient.getId());
+
             // Update state
             patientIntakeService.updateConversationState(
                     patient.getId(), ConversationState.RESULT_SENT);

@@ -35,32 +35,32 @@ public class FinalProtocol {
 
     // Consolidated ECS Products
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "clob")
+    @Column(columnDefinition = "text")
     private Map<String, Object> ecsProtocol;
 
     // Consolidated Diet & Fasting
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "clob")
+    @Column(columnDefinition = "text")
     private Map<String, Object> dietFastingProtocol;
 
     // Consolidated Mushrooms
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "clob")
+    @Column(columnDefinition = "text")
     private Map<String, Object> mushroomProtocol;
 
     // Consolidated Herbs
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "clob")
+    @Column(columnDefinition = "text")
     private Map<String, Object> herbProtocol;
 
     // Repurposed Drugs (if any)
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "clob")
+    @Column(columnDefinition = "text")
     private Map<String, Object> drugProtocol;
 
     // Specialty Treatments
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "clob")
+    @Column(columnDefinition = "text")
     private Map<String, Object> specialtyProtocol;
 
     // All doctor notes consolidated

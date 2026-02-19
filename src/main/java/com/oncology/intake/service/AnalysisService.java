@@ -99,6 +99,10 @@ public class AnalysisService {
     }
 
     private AnalysisInput createAnalysisInput(Patient patient) {
+        String cancerType = patient.getCancerType();
+        if (cancerType == null || cancerType.isEmpty()) {
+            cancerType = "BREAST_CANCER"; // backward compatibility default
+        }
         return AnalysisInput.builder()
                 .age(patient.getAge())
                 .weightKg(patient.getWeightKg())
@@ -106,6 +110,7 @@ public class AnalysisService {
                 .diagnosisDate(patient.getDiagnosisDate())
                 .hasPetScan(Boolean.TRUE.equals(patient.getPetScanUploaded()))
                 .hasBloodReport(Boolean.TRUE.equals(patient.getBloodReportUploaded()))
+                .cancerType(cancerType)
                 .build();
     }
 
@@ -152,14 +157,38 @@ public class AnalysisService {
      */
     public FormattedAnalysisMessage formatForWhatsApp(AnalysisResult result) {
         StringBuilder fullMessage = new StringBuilder();
-        
+
         // Header
         String header = "🏥 *INITIAL ASSESSMENT REPORT*\n" +
                        "━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
         fullMessage.append(header);
-        
+
         // Patient summary (from assessment summary)
         fullMessage.append(result.getAssessmentSummary());
+
+        // Cancer-type-specific protocol summary (consolidated view for patient)
+        if (result.getPhysicianProtocols() != null && !result.getPhysicianProtocols().isEmpty()) {
+            fullMessage.append("\n🎯 *CANCER-SPECIFIC PROTOCOL HIGHLIGHTS:*\n\n");
+            // Show a consolidated view from Medical Oncology domain
+            result.getPhysicianProtocols().stream()
+                    .filter(p -> "Medical Oncology".equals(p.getPhysicianDomain()))
+                    .findFirst()
+                    .ifPresent(medOnc -> {
+                        if (medOnc.getEcsProducts() != null && !medOnc.getEcsProducts().isEmpty()) {
+                            fullMessage.append("• *ECS Products:* " + String.join(", ", medOnc.getEcsProducts()) + "\n");
+                        }
+                        if (medOnc.getDiet() != null) {
+                            fullMessage.append("• *Diet:* " + medOnc.getDiet() + "\n");
+                        }
+                        if (medOnc.getFasting() != null) {
+                            fullMessage.append("• *Fasting:* " + medOnc.getFasting() + "\n");
+                        }
+                        if (medOnc.getLifestyle() != null) {
+                            fullMessage.append("• *Lifestyle:* " + medOnc.getLifestyle() + "\n");
+                        }
+                    });
+            fullMessage.append("\n_Detailed per-specialist protocols are available on the tumor board dashboard._\n\n");
+        }
         
         // Medicine recommendations
         StringBuilder medicineSection = new StringBuilder();
@@ -281,8 +310,13 @@ public class AnalysisService {
             Map<String, Object> alerts = new HashMap<>();
             alerts.put("items", result.getAlerts());
             
+            Map<String, Object> physicianProtocols = new HashMap<>();
+            if (result.getPhysicianProtocols() != null) {
+                physicianProtocols.put("protocols", result.getPhysicianProtocols());
+            }
+
             Map<String, Object> inputSnapshot = objectMapper.convertValue(
-                    input, 
+                    input,
                     new TypeReference<Map<String, Object>>() {});
             
             Analysis analysis = Analysis.builder()

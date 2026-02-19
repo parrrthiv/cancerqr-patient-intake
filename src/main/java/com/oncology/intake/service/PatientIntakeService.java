@@ -82,6 +82,19 @@ public class PatientIntakeService {
     }
 
     /**
+     * Update patient cancer type
+     */
+    @Transactional
+    public Patient updateCancerType(UUID patientId, String cancerType) {
+        Patient patient = getPatient(patientId);
+        patient.setCancerType(cancerType);
+        patient.setLastInteractionAt(LocalDateTime.now());
+
+        auditService.logPatientAction(patientId, AuditAction.PATIENT_UPDATED, "Cancer type updated: " + cancerType);
+        return patientRepository.save(patient);
+    }
+
+    /**
      * Update patient age
      */
     @Transactional

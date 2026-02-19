@@ -27,6 +27,9 @@ spring:
       enabled: ${H2_CONSOLE_ENABLED:true}
       path: /h2-console
 
+  flyway:
+    enabled: false
+
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -134,6 +137,9 @@ spring:
     console:
       enabled: false
 
+  flyway:
+    enabled: true
+
 storage:
   type: s3
 
@@ -141,3 +147,30 @@ logging:
   level:
     root: WARN
     com.oncology.intake: INFO
+
+---
+# Local PostgreSQL Profile
+spring:
+  config:
+    activate:
+      on-profile: local-pg
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/oncologydb
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  h2:
+    console:
+      enabled: false
+
+  flyway:
+    enabled: true

@@ -45,7 +45,7 @@ public class TumorBoardReview {
 
     // Selected protocols (stored as JSON) - H2 compatible
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(columnDefinition = "clob")
+    @Column(columnDefinition = "text")
     private Map<String, Object> selectedProtocols;
 
     @Column(columnDefinition = "TEXT")

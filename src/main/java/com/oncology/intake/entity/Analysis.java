@@ -51,7 +51,7 @@ public class Analysis {
      * - dose_adjustments
      */
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "derived_metrics_json", columnDefinition = "clob")
+    @Column(name = "derived_metrics_json", columnDefinition = "text")
     private Map<String, Object> derivedMetricsJson;
 
     /**
@@ -65,21 +65,21 @@ public class Analysis {
      * - requires_specialist_review flag
      */
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "recommended_medicines_json", columnDefinition = "clob")
+    @Column(name = "recommended_medicines_json", columnDefinition = "text")
     private Map<String, Object> recommendedMedicinesJson;
 
     /**
      * JSON object containing supportive care recommendations
      */
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "supportive_care_json", columnDefinition = "clob")
+    @Column(name = "supportive_care_json", columnDefinition = "text")
     private Map<String, Object> supportiveCareJson;
 
     /**
      * JSON array of alerts/flags triggered by the analysis
      */
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "alerts_json", columnDefinition = "clob")
+    @Column(name = "alerts_json", columnDefinition = "text")
     private Map<String, Object> alertsJson;
 
     @Column(name = "assessment_summary", columnDefinition = "TEXT")
@@ -118,6 +118,6 @@ public class Analysis {
      * patient data used for this analysis
      */
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "input_snapshot_json", columnDefinition = "clob")
+    @Column(name = "input_snapshot_json", columnDefinition = "text")
     private Map<String, Object> inputSnapshotJson;
 }

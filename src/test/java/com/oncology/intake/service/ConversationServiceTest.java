@@ -1,5 +1,6 @@
 package com.oncology.intake.service;
 
+import com.oncology.intake.config.CancerQRProtocolConfig;
 import com.oncology.intake.entity.Patient;
 import com.oncology.intake.entity.Patient.ConversationState;
 import com.oncology.intake.repository.PatientRepository;
@@ -16,6 +17,8 @@ import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -42,6 +45,12 @@ class ConversationServiceTest {
     @Mock
     private AuditService auditService;
 
+    @Mock
+    private TumorBoardService tumorBoardService;
+
+    @Mock
+    private CancerQRProtocolConfig protocolConfig;
+
     private ConversationService conversationService;
 
     @Captor
@@ -56,7 +65,9 @@ class ConversationServiceTest {
                 patientIntakeService,
                 whatsAppClient,
                 analysisService,
-                auditService
+                auditService,
+                tumorBoardService,
+                protocolConfig
         );
 
         testPatient = Patient.builder()
@@ -68,6 +79,22 @@ class ConversationServiceTest {
         // Default mock behavior
         when(whatsAppClient.sendTextMessage(anyString(), anyString()))
                 .thenReturn(Mono.empty());
+    }
+
+    private void setupProtocolConfigMock() {
+        Map<String, CancerQRProtocolConfig.CancerProtocol> cancerProtocols = new LinkedHashMap<>();
+
+        CancerQRProtocolConfig.CancerProtocol breastCancer = new CancerQRProtocolConfig.CancerProtocol();
+        breastCancer.setName("Breast Cancer");
+        breastCancer.setId("BREAST_CANCER");
+        cancerProtocols.put("BREAST_CANCER", breastCancer);
+
+        CancerQRProtocolConfig.CancerProtocol lungCancer = new CancerQRProtocolConfig.CancerProtocol();
+        lungCancer.setName("Lung Cancer");
+        lungCancer.setId("LUNG_CANCER");
+        cancerProtocols.put("LUNG_CANCER", lungCancer);
+
+        lenient().when(protocolConfig.getCancerProtocols()).thenReturn(cancerProtocols);
     }
 
     @Nested
@@ -92,14 +119,15 @@ class ConversationServiceTest {
         }
 
         @Test
-        @DisplayName("YES consent should proceed to ASK_AGE")
-        void yesConsentShouldProceedToAskAge() {
+        @DisplayName("YES consent should proceed to ASK_CANCER_TYPE")
+        void yesConsentShouldProceedToAskCancerType() {
             // Given
             testPatient.setConversationState(ConversationState.AWAITING_CONSENT);
             when(patientIntakeService.findOrCreatePatient(eq(TEST_PHONE), any()))
                     .thenReturn(testPatient);
             lenient().when(patientIntakeService.getPatient(testPatient.getId()))
                     .thenReturn(testPatient);
+            setupProtocolConfigMock();
 
             // When
             conversationService.processTextMessage(TEST_PHONE,"YES", "msg-1", null);
@@ -107,7 +135,7 @@ class ConversationServiceTest {
             // Then
             verify(patientIntakeService).recordConsent(testPatient.getId());
             verify(patientIntakeService).updateConversationState(
-                    testPatient.getId(), ConversationState.ASK_AGE);
+                    testPatient.getId(), ConversationState.ASK_CANCER_TYPE);
         }
 
         @Test
@@ -127,6 +155,57 @@ class ConversationServiceTest {
             verify(patientIntakeService, never()).recordConsent(any());
             verify(patientIntakeService).updateConversationState(
                     testPatient.getId(), ConversationState.COMPLETED);
+        }
+    }
+
+    @Nested
+    @DisplayName("Cancer Type Selection Tests")
+    class CancerTypeSelectionTests {
+
+        @BeforeEach
+        void setUp() {
+            testPatient.setConversationState(ConversationState.ASK_CANCER_TYPE);
+            when(patientIntakeService.findOrCreatePatient(eq(TEST_PHONE), any()))
+                    .thenReturn(testPatient);
+            lenient().when(patientIntakeService.getPatient(testPatient.getId()))
+                    .thenReturn(testPatient);
+            setupProtocolConfigMock();
+        }
+
+        @Test
+        @DisplayName("Valid numeric selection should be accepted")
+        void validNumericSelectionShouldBeAccepted() {
+            // When
+            conversationService.processTextMessage(TEST_PHONE, "1", "msg-1", null);
+
+            // Then
+            verify(patientIntakeService).updateCancerType(testPatient.getId(), "BREAST_CANCER");
+            verify(patientIntakeService).updateConversationState(
+                    testPatient.getId(), ConversationState.ASK_AGE);
+        }
+
+        @Test
+        @DisplayName("Text match should be accepted")
+        void textMatchShouldBeAccepted() {
+            // When
+            conversationService.processTextMessage(TEST_PHONE, "Lung Cancer", "msg-1", null);
+
+            // Then
+            verify(patientIntakeService).updateCancerType(testPatient.getId(), "LUNG_CANCER");
+            verify(patientIntakeService).updateConversationState(
+                    testPatient.getId(), ConversationState.ASK_AGE);
+        }
+
+        @Test
+        @DisplayName("Invalid selection should be rejected")
+        void invalidSelectionShouldBeRejected() {
+            // When
+            conversationService.processTextMessage(TEST_PHONE, "99", "msg-1", null);
+
+            // Then
+            verify(patientIntakeService, never()).updateCancerType(any(), anyString());
+            verify(whatsAppClient).sendTextMessage(eq(TEST_PHONE), messageCaptor.capture());
+            assertTrue(messageCaptor.getValue().contains("valid cancer type"));
         }
     }
 

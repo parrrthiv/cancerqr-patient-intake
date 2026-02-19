@@ -26,6 +26,7 @@ public class AnalysisDto {
         private LocalDate diagnosisDate;
         private boolean hasPetScan;
         private boolean hasBloodReport;
+        private String cancerType;
     }
 
     /**
@@ -44,6 +45,27 @@ public class AnalysisDto {
         private String assessmentSummary;
         private String disclaimerText;
         private boolean requiresUrgentReview;
+        private String cancerType;
+        private List<PhysicianDomainRecommendation> physicianProtocols;
+    }
+
+    /**
+     * Per-physician-domain protocol recommendation from the cancer protocol matrix
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PhysicianDomainRecommendation {
+        private String physicianDomain;
+        private List<String> ecsProducts;
+        private List<MedicineRecommendation> herbs;
+        private List<MedicineRecommendation> mushrooms;
+        private String diet;
+        private String fasting;
+        private List<String> repurposedDrugs;
+        private List<String> specialty;
+        private String lifestyle;
     }
 
     /**
