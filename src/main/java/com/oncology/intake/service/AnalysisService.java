@@ -38,6 +38,7 @@ public class AnalysisService {
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
     private final AIVerificationService aiVerificationService;
+    private final ReportDataExtractionService reportDataExtractionService;
 
     /**
      * Generate analysis for a patient (without verification)
@@ -75,12 +76,20 @@ public class AnalysisService {
         log.info("Generating analysis for patient: {} (verification: {})", patientId, withVerification);
         
         Patient patient = patientIntakeService.getPatient(patientId);
-        
+
         // Validate patient has all required info
         if (!patient.hasBasicInfo()) {
             throw new FormulaEngineException("Patient missing required information for analysis");
         }
-        
+
+        // Extract report data (cancer stage, ESR, CRP) before building input
+        try {
+            reportDataExtractionService.extractAndStoreReportData(patientId);
+            patient = patientIntakeService.getPatient(patientId); // re-fetch with extracted data
+        } catch (Exception e) {
+            log.warn("Report data extraction failed for patient {}, proceeding without: {}", patientId, e.getMessage());
+        }
+
         // Create analysis input
         AnalysisInput input = createAnalysisInput(patient);
         
@@ -111,6 +120,10 @@ public class AnalysisService {
                 .hasPetScan(Boolean.TRUE.equals(patient.getPetScanUploaded()))
                 .hasBloodReport(Boolean.TRUE.equals(patient.getBloodReportUploaded()))
                 .cancerType(cancerType)
+                .effectivePainScale(patient.getEffectivePainScale())
+                .cancerStage(patient.getCancerStage())
+                .esrValue(patient.getEsrValue())
+                .crpValue(patient.getCrpValue())
                 .build();
     }
 

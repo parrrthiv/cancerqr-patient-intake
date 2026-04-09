@@ -3,11 +3,17 @@ package com.oncology.intake.controller;
 import com.oncology.intake.config.CancerQRProtocolConfig;
 import com.oncology.intake.entity.*;
 import com.oncology.intake.entity.Doctor.PhysicianDomain;
+import com.oncology.intake.entity.Report;
 import com.oncology.intake.repository.*;
+import com.oncology.intake.service.ReportDataExtractionService;
+import com.oncology.intake.service.StorageService;
 import com.oncology.intake.service.TumorBoardService;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
@@ -27,9 +33,13 @@ public class DashboardController {
 
     private final DoctorRepository doctorRepository;
     private final PatientRepository patientRepository;
+    private final ReportRepository reportRepository;
+    private final AnalysisRepository analysisRepository;
     private final TumorBoardReviewRepository reviewRepository;
     private final FinalProtocolRepository protocolRepository;
     private final TumorBoardService tumorBoardService;
+    private final StorageService storageService;
+    private final ReportDataExtractionService reportDataExtractionService;
     private final CancerQRProtocolConfig protocolConfig;
 
     /**
@@ -139,9 +149,19 @@ public class DashboardController {
 
         Doctor doctor = doctorRepository.findById(doctorId).orElse(null);
         Patient patient = patientRepository.findById(patientId).orElse(null);
-        
+
         if (doctor == null || patient == null) {
             return "redirect:/dashboard";
+        }
+
+        // Extract report data if not already done
+        if (patient.getCancerStage() == null && patient.getEsrValue() == null && patient.getCrpValue() == null) {
+            try {
+                reportDataExtractionService.extractAndStoreReportData(patientId);
+                patient = patientRepository.findById(patientId).orElse(patient);
+            } catch (Exception e) {
+                log.warn("Report data extraction failed for patient {}: {}", patientId, e.getMessage());
+            }
         }
 
         // Get or create review for this doctor's domain
@@ -193,8 +213,17 @@ public class DashboardController {
             }
         }
 
+        // Get reports for this patient
+        List<Report> reports = reportRepository.findByPatientId(patientId);
+
+        // Get latest analysis for this patient
+        Analysis latestAnalysis = analysisRepository
+                .findFirstByPatientIdOrderByCreatedAtDesc(patientId).orElse(null);
+
         model.addAttribute("doctor", doctor);
         model.addAttribute("patient", patient);
+        model.addAttribute("reports", reports);
+        model.addAttribute("analysis", latestAnalysis);
         model.addAttribute("review", review);
         model.addAttribute("reviewStatus", reviewStatus);
         model.addAttribute("cancerProtocol", cancerProtocol);
@@ -276,6 +305,32 @@ public class DashboardController {
 
         redirectAttributes.addFlashAttribute("success", "Review submitted successfully!");
         return "redirect:/dashboard";
+    }
+
+    /**
+     * View/download a report file
+     */
+    @GetMapping("/reports/{reportId}/view")
+    @ResponseBody
+    public ResponseEntity<byte[]> viewReport(@PathVariable UUID reportId,
+                                             HttpSession session) {
+        UUID doctorId = (UUID) session.getAttribute("doctorId");
+        if (doctorId == null) {
+            return ResponseEntity.status(401).build();
+        }
+
+        Report report = reportRepository.findById(reportId).orElse(null);
+        if (report == null) {
+            return ResponseEntity.notFound().build();
+        }
+
+        byte[] fileBytes = storageService.retrieveFile(report.getStorageLocation());
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + report.getFileName() + "\"")
+                .contentType(MediaType.parseMediaType(report.getContentType()))
+                .contentLength(fileBytes.length)
+                .body(fileBytes);
     }
 
     /**

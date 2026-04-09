@@ -296,7 +296,8 @@ public class FormulaEngine {
     private DerivedMetrics calculateDerivedMetrics(AnalysisInput input) {
         List<String> appliedRules = new ArrayList<>();
 
-        String painCategory = determinePainCategory(input.getPainScale());
+        int effectivePain = getEffectivePainScale(input);
+        String painCategory = determinePainCategory(effectivePain);
         appliedRules.add("pain_category:" + painCategory);
 
         String weightCategory = determineWeightCategory(input.getWeightKg());
@@ -352,7 +353,7 @@ public class FormulaEngine {
                     .notes(formulation.getNotes() + ". " + formulation.getAdministration())
                     .requiresSpecialistReview(false)
                     .adjustmentReason(String.format("Based on: %.1fkg body weight × pain level %d/10",
-                            input.getWeightKg(), input.getPainScale()))
+                            input.getWeightKg(), getEffectivePainScale(input)))
                     .build());
         }
         return recommendations;
@@ -362,8 +363,9 @@ public class FormulaEngine {
         var cbdConfig = formulaConfig.getEndocannabinoidTherapy();
         if (cbdConfig == null) return BigDecimal.ZERO;
 
+        int effectivePain = getEffectivePainScale(input);
         BigDecimal baseDose = input.getWeightKg().multiply(BigDecimal.valueOf(cbdConfig.getBaseDoseMgPerKg()));
-        double painMultiplier = getPainMultiplier(input.getPainScale(), cbdConfig);
+        double painMultiplier = getPainMultiplier(effectivePain, cbdConfig);
         BigDecimal adjustedDose = baseDose.multiply(BigDecimal.valueOf(painMultiplier));
         BigDecimal maxDose = getMaxCBDDose(input.getWeightKg(), cbdConfig);
 
@@ -504,7 +506,7 @@ public class FormulaEngine {
             return recommendations;
         }
 
-        if (input.getPainScale() >= 7) {
+        if (getEffectivePainScale(input) >= 7) {
             recommendations.add(SupportiveCare.builder().category("⏰ Fasting Protocol").name("Gentle Time-Restricted Eating")
                     .notes("Due to higher pain levels, avoid strict fasting. Consider 12:12 eating pattern if tolerated.").build());
             return recommendations;
@@ -531,14 +533,16 @@ public class FormulaEngine {
     private List<Alert> checkAlerts(AnalysisInput input, DerivedMetrics metrics) {
         List<Alert> alerts = new ArrayList<>();
 
+        int effectivePain = getEffectivePainScale(input);
+
         if (input.getAge() < 18)
             alerts.add(Alert.builder().severity(AlertSeverity.URGENT).type("PEDIATRIC_PATIENT")
                     .message("Pediatric patient - requires specialized guidance")
                     .recommendation("This protocol is for adults. Please consult a pediatric integrative oncologist.").build());
 
-        if (input.getPainScale() >= 7)
+        if (effectivePain >= 7)
             alerts.add(Alert.builder().severity(AlertSeverity.URGENT).type("HIGH_PAIN")
-                    .message("High pain score detected (" + input.getPainScale() + "/10)")
+                    .message("High pain score detected (" + effectivePain + "/10)")
                     .recommendation("Prioritize pain management. Consider higher CBD dosing and consult pain specialist.").build());
 
         if (input.getAge() >= 70)
@@ -556,6 +560,14 @@ public class FormulaEngine {
                     .message("Recently diagnosed (within 30 days)")
                     .recommendation("Ensure conventional workup is complete. Coordinate with oncology team.").build());
 
+        if (input.getEffectivePainScale() != null && input.getEffectivePainScale() > input.getPainScale())
+            alerts.add(Alert.builder().severity(AlertSeverity.WARNING).type("PAIN_ADJUSTED_BY_INFLAMMATION")
+                    .message(String.format("Pain scale adjusted from %d to %d based on inflammation markers (ESR: %s, CRP: %s)",
+                            input.getPainScale(), input.getEffectivePainScale(),
+                            input.getEsrValue() != null ? input.getEsrValue() + " mm/hr" : "N/A",
+                            input.getCrpValue() != null ? input.getCrpValue() + " mg/L" : "N/A"))
+                    .recommendation("Inflammation markers suggest higher pain burden than self-reported. Dosing adjusted accordingly.").build());
+
         return alerts;
     }
 
@@ -567,14 +579,33 @@ public class FormulaEngine {
             CancerProtocol cp = protocolConfig.getCancerProtocols() != null ?
                     protocolConfig.getCancerProtocols().get(input.getCancerType()) : null;
             String displayName = cp != null ? cp.getName() : input.getCancerType();
-            summary.append(String.format("*Cancer Type:* %s\n\n", displayName));
+            summary.append(String.format("*Cancer Type:* %s", displayName));
+            if (input.getCancerStage() != null) {
+                summary.append(String.format(" (%s)", input.getCancerStage()));
+            }
+            summary.append("\n\n");
         }
 
+        int effectivePain = getEffectivePainScale(input);
         summary.append("*Patient Profile:*\n");
         summary.append(String.format("• Age: %d years (%s)\n", input.getAge(), metrics.getAgeCategory()));
         summary.append(String.format("• Weight: %.1f kg (%s)\n", input.getWeightKg(), metrics.getWeightCategory()));
-        summary.append(String.format("• Pain Level: %d/10 (%s)\n", input.getPainScale(), metrics.getPainCategory()));
-        summary.append(String.format("• Days Since Diagnosis: %d\n\n", metrics.getDaysSinceDiagnosis()));
+        summary.append(String.format("• Pain Level: %d/10 (%s)\n", effectivePain, metrics.getPainCategory()));
+        if (input.getEffectivePainScale() != null && input.getEffectivePainScale() > input.getPainScale()) {
+            summary.append(String.format("  _(adjusted from %d/10 based on inflammation markers)_\n", input.getPainScale()));
+        }
+        summary.append(String.format("• Days Since Diagnosis: %d\n", metrics.getDaysSinceDiagnosis()));
+
+        if (input.getEsrValue() != null || input.getCrpValue() != null) {
+            summary.append("\n*Inflammation Markers:*\n");
+            if (input.getEsrValue() != null) {
+                summary.append(String.format("• ESR: %s mm/hr\n", input.getEsrValue()));
+            }
+            if (input.getCrpValue() != null) {
+                summary.append(String.format("• CRP: %s mg/L\n", input.getCrpValue()));
+            }
+        }
+        summary.append("\n");
 
         var cbdDose = metrics.getAdditionalMetrics().get("cbd_base_dose_mg");
         if (cbdDose != null) summary.append(String.format("*Calculated CBD Dose:* %s mg/day\n\n", cbdDose));
@@ -590,6 +621,10 @@ public class FormulaEngine {
 
         summary.append("*Protocol Components:*\n• 🌿 Endocannabinoid (CBD) Therapy\n• 🌱 Mono Herbs (5 selected)\n• 🍄 Functional Mushrooms (3 selected)\n• ⏰ Fasting Protocol\n• 🥗 Diet Protocol\n");
         return summary.toString();
+    }
+
+    private int getEffectivePainScale(AnalysisInput input) {
+        return input.getEffectivePainScale() != null ? input.getEffectivePainScale() : input.getPainScale();
     }
 
     private String determinePainCategory(int painScale) { return painScale <= 3 ? "LOW" : painScale <= 6 ? "MODERATE" : "HIGH"; }

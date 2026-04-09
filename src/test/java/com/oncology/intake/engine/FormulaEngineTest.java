@@ -385,6 +385,126 @@ class FormulaEngineTest {
     }
 
     @Nested
+    @DisplayName("Effective Pain Scale Tests")
+    class EffectivePainScaleTests {
+
+        @Test
+        @DisplayName("Should use effectivePainScale for CBD dosing when set")
+        void shouldUseEffectivePainScaleForCBDDosing() {
+            // Given: patient self-reports pain 3, but inflammation adjusts to 7
+            AnalysisInput inputWithAdjusted = AnalysisInput.builder()
+                    .age(50)
+                    .weightKg(BigDecimal.valueOf(70))
+                    .painScale(3)
+                    .effectivePainScale(7)
+                    .diagnosisDate(LocalDate.now().minusDays(60))
+                    .build();
+
+            AnalysisInput inputWithoutAdjusted = AnalysisInput.builder()
+                    .age(50)
+                    .weightKg(BigDecimal.valueOf(70))
+                    .painScale(3)
+                    .diagnosisDate(LocalDate.now().minusDays(60))
+                    .build();
+
+            // When
+            AnalysisResult resultAdjusted = formulaEngine.generateAnalysis(inputWithAdjusted);
+            AnalysisResult resultOriginal = formulaEngine.generateAnalysis(inputWithoutAdjusted);
+
+            // Then: adjusted pain should result in HIGH pain category
+            assertEquals("HIGH", resultAdjusted.getDerivedMetrics().getPainCategory());
+            assertEquals("LOW", resultOriginal.getDerivedMetrics().getPainCategory());
+        }
+
+        @Test
+        @DisplayName("Should generate PAIN_ADJUSTED_BY_INFLAMMATION alert when pain adjusted")
+        void shouldGeneratePainAdjustedAlert() {
+            AnalysisInput input = AnalysisInput.builder()
+                    .age(50)
+                    .weightKg(BigDecimal.valueOf(70))
+                    .painScale(3)
+                    .effectivePainScale(7)
+                    .esrValue(BigDecimal.valueOf(48))
+                    .crpValue(BigDecimal.valueOf(22))
+                    .diagnosisDate(LocalDate.now().minusDays(60))
+                    .build();
+
+            AnalysisResult result = formulaEngine.generateAnalysis(input);
+
+            assertTrue(result.getAlerts().stream()
+                    .anyMatch(a -> a.getType().equals("PAIN_ADJUSTED_BY_INFLAMMATION")));
+        }
+
+        @Test
+        @DisplayName("Should not generate PAIN_ADJUSTED alert when no adjustment")
+        void shouldNotGeneratePainAdjustedAlertWhenNoAdjustment() {
+            AnalysisInput input = AnalysisInput.builder()
+                    .age(50)
+                    .weightKg(BigDecimal.valueOf(70))
+                    .painScale(5)
+                    .diagnosisDate(LocalDate.now().minusDays(60))
+                    .build();
+
+            AnalysisResult result = formulaEngine.generateAnalysis(input);
+
+            assertFalse(result.getAlerts().stream()
+                    .anyMatch(a -> a.getType().equals("PAIN_ADJUSTED_BY_INFLAMMATION")));
+        }
+
+        @Test
+        @DisplayName("Should fall back to painScale when effectivePainScale is null")
+        void shouldFallBackToPainScaleWhenEffectiveIsNull() {
+            AnalysisInput input = AnalysisInput.builder()
+                    .age(50)
+                    .weightKg(BigDecimal.valueOf(70))
+                    .painScale(5)
+                    .diagnosisDate(LocalDate.now().minusDays(60))
+                    .build();
+
+            AnalysisResult result = formulaEngine.generateAnalysis(input);
+
+            assertEquals("MODERATE", result.getDerivedMetrics().getPainCategory());
+        }
+
+        @Test
+        @DisplayName("Should include cancer stage in assessment summary")
+        void shouldIncludeCancerStageInSummary() {
+            AnalysisInput input = AnalysisInput.builder()
+                    .age(50)
+                    .weightKg(BigDecimal.valueOf(70))
+                    .painScale(3)
+                    .cancerType("BREAST_CANCER")
+                    .cancerStage("Stage IV")
+                    .diagnosisDate(LocalDate.now().minusDays(60))
+                    .build();
+
+            AnalysisResult result = formulaEngine.generateAnalysis(input);
+
+            assertTrue(result.getAssessmentSummary().contains("Stage IV"));
+        }
+
+        @Test
+        @DisplayName("Should include ESR and CRP in assessment summary")
+        void shouldIncludeInflammationMarkersInSummary() {
+            AnalysisInput input = AnalysisInput.builder()
+                    .age(50)
+                    .weightKg(BigDecimal.valueOf(70))
+                    .painScale(3)
+                    .esrValue(BigDecimal.valueOf(48))
+                    .crpValue(BigDecimal.valueOf(22))
+                    .diagnosisDate(LocalDate.now().minusDays(60))
+                    .build();
+
+            AnalysisResult result = formulaEngine.generateAnalysis(input);
+
+            assertTrue(result.getAssessmentSummary().contains("ESR"));
+            assertTrue(result.getAssessmentSummary().contains("48"));
+            assertTrue(result.getAssessmentSummary().contains("CRP"));
+            assertTrue(result.getAssessmentSummary().contains("22"));
+        }
+    }
+
+    @Nested
     @DisplayName("Protocol-Based Analysis Tests")
     class ProtocolBasedAnalysisTests {
 

@@ -27,6 +27,10 @@ public class AnalysisDto {
         private boolean hasPetScan;
         private boolean hasBloodReport;
         private String cancerType;
+        private Integer effectivePainScale;
+        private String cancerStage;
+        private BigDecimal esrValue;
+        private BigDecimal crpValue;
     }
 
     /**

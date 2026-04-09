@@ -103,6 +103,18 @@ public class Patient {
     @Column(name = "consent_timestamp")
     private LocalDateTime consentTimestamp;
 
+    @Column(name = "cancer_stage", length = 50)
+    private String cancerStage;
+
+    @Column(name = "esr_value", precision = 6, scale = 2)
+    private BigDecimal esrValue;
+
+    @Column(name = "crp_value", precision = 6, scale = 2)
+    private BigDecimal crpValue;
+
+    @Column(name = "effective_pain_scale")
+    private Integer effectivePainScale;
+
     // Helper methods
     public void addReport(Report report) {
         reports.add(report);

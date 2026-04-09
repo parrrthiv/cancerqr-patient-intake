@@ -82,19 +82,69 @@
                     </div>
                 </div>
 
+                <!-- Extracted Report Data -->
+                <div th:if="${patient.cancerStage != null or patient.esrValue != null or patient.crpValue != null or patient.effectivePainScale != null}"
+                     class="bg-white rounded-xl shadow-md p-6">
+                    <h2 class="text-xl font-bold text-gray-800 mb-4">🔬 Extracted Report Data</h2>
+                    <div class="space-y-3">
+                        <div th:if="${patient.cancerStage != null}">
+                            <span class="text-gray-500 text-sm">Cancer Stage</span>
+                            <p class="font-semibold text-red-600" th:text="${patient.cancerStage}">Stage IV</p>
+                        </div>
+                        <div th:if="${patient.esrValue != null}" class="flex justify-between items-center">
+                            <div>
+                                <span class="text-gray-500 text-sm">ESR</span>
+                                <p class="font-semibold" th:text="${patient.esrValue + ' mm/hr'}">48 mm/hr</p>
+                            </div>
+                            <span th:if="${patient.esrValue > 40}" class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">HIGH</span>
+                            <span th:if="${patient.esrValue > 20 and patient.esrValue <= 40}" class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded-full">ELEVATED</span>
+                        </div>
+                        <div th:if="${patient.crpValue != null}" class="flex justify-between items-center">
+                            <div>
+                                <span class="text-gray-500 text-sm">CRP</span>
+                                <p class="font-semibold" th:text="${patient.crpValue + ' mg/L'}">22 mg/L</p>
+                            </div>
+                            <span th:if="${patient.crpValue > 20}" class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">HIGH</span>
+                            <span th:if="${patient.crpValue > 10 and patient.crpValue <= 20}" class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded-full">ELEVATED</span>
+                        </div>
+                        <div th:if="${patient.effectivePainScale != null and patient.effectivePainScale > patient.painScale}">
+                            <span class="text-gray-500 text-sm">Adjusted Pain Scale</span>
+                            <div class="flex items-center mt-1">
+                                <span class="font-semibold text-gray-500 line-through" th:text="${patient.painScale + '/10'}">3/10</span>
+                                <span class="mx-2 text-orange-500">→</span>
+                                <span class="font-semibold text-orange-600" th:text="${patient.effectivePainScale + '/10'}">7/10</span>
+                                <span class="ml-2 px-2 py-1 bg-orange-100 text-orange-700 text-xs rounded-full">Inflammation-adjusted</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Reports -->
                 <div class="bg-white rounded-xl shadow-md p-6">
                     <h2 class="text-xl font-bold text-gray-800 mb-4">📎 Uploaded Reports</h2>
                     <div class="space-y-2">
-                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <span>📄 PET Scan</span>
-                            <span th:if="${patient.petScanUploaded}" class="text-green-600">✅ Uploaded</span>
-                            <span th:unless="${patient.petScanUploaded}" class="text-gray-400">⏳ Pending</span>
+                        <!-- Dynamic report links -->
+                        <div th:if="${reports != null and !reports.isEmpty()}" th:each="report : ${reports}"
+                             class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <span th:text="'📄 ' + ${report.reportType.displayName}">📄 Report</span>
+                            <a th:href="@{/dashboard/reports/{id}/view(id=${report.id})}"
+                               target="_blank"
+                               class="text-blue-600 hover:text-blue-800 font-medium text-sm">
+                                📥 View
+                            </a>
                         </div>
-                        <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                            <span>📄 Blood Report</span>
-                            <span th:if="${patient.bloodReportUploaded}" class="text-green-600">✅ Uploaded</span>
-                            <span th:unless="${patient.bloodReportUploaded}" class="text-gray-400">⏳ Pending</span>
+                        <!-- Fallback when no reports exist -->
+                        <div th:if="${reports == null or reports.isEmpty()}" class="space-y-2">
+                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                <span>📄 PET Scan</span>
+                                <span th:if="${patient.petScanUploaded}" class="text-green-600">✅ Uploaded</span>
+                                <span th:unless="${patient.petScanUploaded}" class="text-gray-400">⏳ Pending</span>
+                            </div>
+                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                <span>📄 Blood Report</span>
+                                <span th:if="${patient.bloodReportUploaded}" class="text-green-600">✅ Uploaded</span>
+                                <span th:unless="${patient.bloodReportUploaded}" class="text-gray-400">⏳ Pending</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -123,8 +173,75 @@
                 </div>
             </div>
 
-            <!-- Right Column: Review Form -->
-            <div class="lg:col-span-2">
+            <!-- Right Column: Analysis + Review Form -->
+            <div class="lg:col-span-2 space-y-6">
+
+                <!-- Initial Analysis Card -->
+                <div th:if="${analysis != null}" class="bg-white rounded-xl shadow-md p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold text-gray-800">📊 Initial Analysis</h2>
+                        <div class="flex items-center space-x-3">
+                            <span class="text-xs text-gray-500" th:text="'Formula ' + ${analysis.formulaVersion}">Formula v1.0</span>
+                            <span th:if="${analysis.requiresUrgentReview}" class="px-2 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-full">URGENT REVIEW</span>
+                            <span class="text-xs text-gray-400" th:text="'Generated ' + ${#temporals.format(analysis.createdAt, 'dd MMM yyyy HH:mm')}">Generated 01 Jan 2025</span>
+                        </div>
+                    </div>
+
+                    <!-- Assessment Summary -->
+                    <div th:if="${analysis.assessmentSummary != null}" class="mb-4">
+                        <pre class="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 rounded-lg p-4 font-sans" th:text="${analysis.assessmentSummary}">Assessment summary</pre>
+                    </div>
+
+                    <!-- Alerts -->
+                    <div th:if="${analysis.alertsJson != null and analysis.alertsJson.containsKey('items')}" class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">Alerts</h3>
+                        <div class="space-y-2">
+                            <div th:each="alert : ${analysis.alertsJson.get('items')}" class="flex items-start p-3 rounded-lg"
+                                 th:classappend="${alert.get('severity') == 'URGENT' ? 'bg-red-50 border border-red-200' : (alert.get('severity') == 'WARNING' ? 'bg-yellow-50 border border-yellow-200' : 'bg-blue-50 border border-blue-200')}">
+                                <span th:if="${alert.get('severity') == 'URGENT'}" class="mr-2">🔴</span>
+                                <span th:if="${alert.get('severity') == 'WARNING'}" class="mr-2">🟡</span>
+                                <span th:if="${alert.get('severity') == 'INFO'}" class="mr-2">🔵</span>
+                                <div>
+                                    <p class="text-sm font-medium" th:text="${alert.get('message')}">Alert message</p>
+                                    <p class="text-xs text-gray-600 mt-1" th:text="${alert.get('recommendation')}">Recommendation</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recommended Medicines -->
+                    <div th:if="${analysis.recommendedMedicinesJson != null and analysis.recommendedMedicinesJson.containsKey('recommendations')}" class="mb-4">
+                        <h3 class="font-semibold text-gray-800 mb-2">Recommended Medicines</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div th:each="med : ${analysis.recommendedMedicinesJson.get('recommendations')}"
+                                 class="p-3 bg-gray-50 rounded-lg">
+                                <p class="font-medium text-sm" th:text="${med.get('name')}">Medicine</p>
+                                <p class="text-xs text-gray-500" th:text="${med.get('category')}">Category</p>
+                                <p class="text-xs mt-1"><span class="font-medium">Dose:</span> <span th:text="${med.get('dose')}">dose</span></p>
+                                <p class="text-xs"><span class="font-medium">Frequency:</span> <span th:text="${med.get('frequency')}">freq</span></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Supportive Care -->
+                    <div th:if="${analysis.supportiveCareJson != null and analysis.supportiveCareJson.containsKey('items')}">
+                        <h3 class="font-semibold text-gray-800 mb-2">Supportive Care</h3>
+                        <div class="space-y-2">
+                            <div th:each="care : ${analysis.supportiveCareJson.get('items')}"
+                                 class="p-3 bg-green-50 rounded-lg">
+                                <p class="font-medium text-sm" th:text="${care.get('name')}">Care item</p>
+                                <p class="text-xs text-gray-500" th:text="${care.get('category')}">Category</p>
+                                <p th:if="${care.get('notes') != null}" class="text-xs text-gray-600 mt-1" th:text="${care.get('notes')}">Notes</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- No Analysis Banner -->
+                <div th:if="${analysis == null}" class="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-xl">
+                    ⏳ No initial analysis has been generated for this patient yet.
+                </div>
+
                 <div class="bg-white rounded-xl shadow-md p-6">
                     <h2 class="text-xl font-bold text-gray-800 mb-2">
                         ✍️ Your Review
