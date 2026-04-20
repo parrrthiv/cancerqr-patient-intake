@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CancerQR - Manage Doctors</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between items-center py-4">
+                <div class="flex items-center space-x-4">
+                    <a th:href="@{/dashboard}" class="text-2xl font-bold text-blue-600">🏥 CancerQR</a>
+                    <span class="text-gray-400">|</span>
+                    <span class="text-gray-600">Manage Doctors</span>
+                </div>
+                <a th:href="@{/dashboard}" class="text-blue-600 hover:text-blue-800">
+                    ← Back to Dashboard
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Flash Messages -->
+        <div th:if="${success}" class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+            <span th:text="${success}"></span>
+        </div>
+        <div th:if="${error}" class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+            <span th:text="${error}"></span>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <div class="flex items-center">
+                    <div class="p-3 bg-blue-100 rounded-full">
+                        <span class="text-2xl">👨‍⚕️</span>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-gray-500 text-sm">Total Doctors</p>
+                        <p class="text-2xl font-bold text-gray-800" th:text="${totalCount}">0</p>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <div class="flex items-center">
+                    <div class="p-3 bg-green-100 rounded-full">
+                        <span class="text-2xl">✅</span>
+                    </div>
+                    <div class="ml-4">
+                        <p class="text-gray-500 text-sm">Active</p>
+                        <p class="text-2xl font-bold text-gray-800" th:text="${activeCount}">0</p>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white rounded-xl shadow-md p-6">
+                <p class="text-gray-500 text-sm mb-2">By Domain</p>
+                <div class="space-y-1">
+                    <div th:each="entry : ${byDomain}" class="flex justify-between text-sm">
+                        <span class="text-gray-600" th:text="${entry.key}">Domain</span>
+                        <span class="font-semibold text-gray-800" th:text="${entry.value}">0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add / Edit Doctor Form -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-8">
+            <h2 class="text-xl font-bold text-gray-800 mb-4" th:text="${editDoctor != null ? 'Edit Doctor' : 'Add New Doctor'}">Add New Doctor</h2>
+
+            <form th:action="${editDoctor != null ? '/dashboard/doctors/' + editDoctor.id : '/dashboard/doctors'}" method="post">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+                        <input type="text" name="fullName" required
+                               th:value="${editDoctor != null ? editDoctor.fullName : ''}"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="Dr. Jane Smith">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Username *</label>
+                        <input type="text" name="username" required
+                               th:value="${editDoctor != null ? editDoctor.username : ''}"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="jsmith">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                            Password <span th:if="${editDoctor != null}" class="text-gray-400">(leave blank to keep)</span>
+                            <span th:if="${editDoctor == null}">*</span>
+                        </label>
+                        <input type="password" name="password" th:required="${editDoctor == null}"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="••••••••">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Domain *</label>
+                        <select name="domain" required
+                                class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">Select domain...</option>
+                            <option th:each="d : ${domains}" th:value="${d.name()}" th:text="${d.displayName}"
+                                    th:selected="${editDoctor != null and editDoctor.domain == d}">Domain</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                        <input type="email" name="email"
+                               th:value="${editDoctor != null ? editDoctor.email : ''}"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="jane@hospital.org">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                        <input type="tel" name="phone"
+                               th:value="${editDoctor != null ? editDoctor.phone : ''}"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="+1234567890">
+                    </div>
+                </div>
+                <div class="mt-4 flex space-x-3">
+                    <button type="submit"
+                            class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg text-sm font-medium">
+                        <span th:text="${editDoctor != null ? 'Update Doctor' : 'Add Doctor'}">Add Doctor</span>
+                    </button>
+                    <a th:if="${editDoctor != null}" th:href="@{/dashboard/doctors}"
+                       class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-2 rounded-lg text-sm font-medium">
+                        Cancel
+                    </a>
+                </div>
+            </form>
+        </div>
+
+        <!-- Doctors Table -->
+        <div class="bg-white rounded-xl shadow-md overflow-hidden">
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr class="text-left text-gray-600 text-sm">
+                        <th class="px-6 py-4">Name</th>
+                        <th class="px-6 py-4">Username</th>
+                        <th class="px-6 py-4">Domain</th>
+                        <th class="px-6 py-4">Email</th>
+                        <th class="px-6 py-4">Status</th>
+                        <th class="px-6 py-4">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="doc : ${doctors}" class="border-t hover:bg-gray-50">
+                        <td class="px-6 py-4">
+                            <div class="font-semibold text-gray-800" th:text="${doc.fullName}">Name</div>
+                            <div class="text-xs text-gray-400" th:text="${doc.phone != null ? doc.phone : ''}">Phone</div>
+                        </td>
+                        <td class="px-6 py-4 text-sm text-gray-600" th:text="${doc.username}">username</td>
+                        <td class="px-6 py-4">
+                            <span class="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full"
+                                  th:text="${doc.domain.displayName}">Domain</span>
+                        </td>
+                        <td class="px-6 py-4 text-sm text-gray-600" th:text="${doc.email != null ? doc.email : '-'}">email</td>
+                        <td class="px-6 py-4">
+                            <span th:if="${doc.active}" class="px-2 py-1 bg-green-100 text-green-600 text-xs rounded-full">Active</span>
+                            <span th:unless="${doc.active}" class="px-2 py-1 bg-red-100 text-red-600 text-xs rounded-full">Inactive</span>
+                        </td>
+                        <td class="px-6 py-4">
+                            <div class="flex space-x-2">
+                                <a th:href="@{/dashboard/doctors/{id}/edit(id=${doc.id})}"
+                                   class="text-blue-600 hover:text-blue-800 text-sm">Edit</a>
+                                <form th:action="@{/dashboard/doctors/{id}/toggle(id=${doc.id})}" method="post" class="inline">
+                                    <button type="submit"
+                                            th:text="${doc.active ? 'Deactivate' : 'Activate'}"
+                                            th:class="${doc.active ? 'text-red-600 hover:text-red-800 text-sm' : 'text-green-600 hover:text-green-800 text-sm'}">
+                                        Toggle
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div th:if="${#lists.isEmpty(doctors)}" class="text-center py-12 text-gray-500">
+                <p class="text-4xl mb-2">👨‍⚕️</p>
+                <p>No doctors registered yet.</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

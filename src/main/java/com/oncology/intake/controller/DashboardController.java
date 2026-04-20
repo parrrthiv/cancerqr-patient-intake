@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Controller for Tumor Board Dashboard.
@@ -385,6 +386,186 @@ public class DashboardController {
         model.addAttribute("reviews", reviews);
 
         return "dashboard/protocol";
+    }
+
+    // ── Doctor Management (Admin Only) ──────────────────────────────────
+
+    /**
+     * List all doctors + inline add form
+     */
+    @GetMapping("/doctors")
+    public String listDoctors(HttpSession session, Model model) {
+        Doctor admin = getAdminOrNull(session);
+        if (admin == null) {
+            return "redirect:/dashboard";
+        }
+
+        List<Doctor> doctors = doctorRepository.findAll();
+
+        long activeCount = doctors.stream().filter(Doctor::getActive).count();
+        Map<String, Long> byDomain = doctors.stream()
+                .collect(Collectors.groupingBy(d -> d.getDomain().getDisplayName(), Collectors.counting()));
+
+        model.addAttribute("admin", admin);
+        model.addAttribute("doctors", doctors);
+        model.addAttribute("totalCount", doctors.size());
+        model.addAttribute("activeCount", activeCount);
+        model.addAttribute("byDomain", byDomain);
+        model.addAttribute("domains", PhysicianDomain.values());
+        model.addAttribute("editDoctor", null);
+
+        return "dashboard/doctors";
+    }
+
+    /**
+     * Create a new doctor
+     */
+    @PostMapping("/doctors")
+    public String createDoctor(@RequestParam String fullName,
+                               @RequestParam String username,
+                               @RequestParam String password,
+                               @RequestParam PhysicianDomain domain,
+                               @RequestParam(required = false) String email,
+                               @RequestParam(required = false) String phone,
+                               HttpSession session,
+                               RedirectAttributes redirectAttributes) {
+        Doctor admin = getAdminOrNull(session);
+        if (admin == null) {
+            return "redirect:/dashboard";
+        }
+
+        if (doctorRepository.existsByUsername(username)) {
+            redirectAttributes.addFlashAttribute("error", "Username '" + username + "' already exists");
+            return "redirect:/dashboard/doctors";
+        }
+
+        Doctor doctor = Doctor.builder()
+                .fullName(fullName)
+                .username(username)
+                .password(password)
+                .domain(domain)
+                .email(email)
+                .phone(phone)
+                .active(true)
+                .build();
+        doctorRepository.save(doctor);
+
+        log.info("Admin {} created doctor: {} ({})", admin.getFullName(), fullName, domain);
+        redirectAttributes.addFlashAttribute("success", "Doctor '" + fullName + "' created successfully");
+        return "redirect:/dashboard/doctors";
+    }
+
+    /**
+     * Show edit form for a doctor
+     */
+    @GetMapping("/doctors/{id}/edit")
+    public String editDoctorForm(@PathVariable UUID id,
+                                 HttpSession session,
+                                 Model model) {
+        Doctor admin = getAdminOrNull(session);
+        if (admin == null) {
+            return "redirect:/dashboard";
+        }
+
+        Doctor editDoctor = doctorRepository.findById(id).orElse(null);
+        if (editDoctor == null) {
+            return "redirect:/dashboard/doctors";
+        }
+
+        List<Doctor> doctors = doctorRepository.findAll();
+        long activeCount = doctors.stream().filter(Doctor::getActive).count();
+        Map<String, Long> byDomain = doctors.stream()
+                .collect(Collectors.groupingBy(d -> d.getDomain().getDisplayName(), Collectors.counting()));
+
+        model.addAttribute("admin", admin);
+        model.addAttribute("doctors", doctors);
+        model.addAttribute("totalCount", doctors.size());
+        model.addAttribute("activeCount", activeCount);
+        model.addAttribute("byDomain", byDomain);
+        model.addAttribute("domains", PhysicianDomain.values());
+        model.addAttribute("editDoctor", editDoctor);
+
+        return "dashboard/doctors";
+    }
+
+    /**
+     * Update a doctor
+     */
+    @PostMapping("/doctors/{id}")
+    public String updateDoctor(@PathVariable UUID id,
+                               @RequestParam String fullName,
+                               @RequestParam String username,
+                               @RequestParam(required = false) String password,
+                               @RequestParam PhysicianDomain domain,
+                               @RequestParam(required = false) String email,
+                               @RequestParam(required = false) String phone,
+                               HttpSession session,
+                               RedirectAttributes redirectAttributes) {
+        Doctor admin = getAdminOrNull(session);
+        if (admin == null) {
+            return "redirect:/dashboard";
+        }
+
+        Doctor doctor = doctorRepository.findById(id).orElse(null);
+        if (doctor == null) {
+            redirectAttributes.addFlashAttribute("error", "Doctor not found");
+            return "redirect:/dashboard/doctors";
+        }
+
+        // Check username uniqueness if changed
+        if (!doctor.getUsername().equals(username) && doctorRepository.existsByUsername(username)) {
+            redirectAttributes.addFlashAttribute("error", "Username '" + username + "' already exists");
+            return "redirect:/dashboard/doctors/" + id + "/edit";
+        }
+
+        doctor.setFullName(fullName);
+        doctor.setUsername(username);
+        if (password != null && !password.isBlank()) {
+            doctor.setPassword(password);
+        }
+        doctor.setDomain(domain);
+        doctor.setEmail(email);
+        doctor.setPhone(phone);
+        doctorRepository.save(doctor);
+
+        log.info("Admin {} updated doctor: {} ({})", admin.getFullName(), fullName, domain);
+        redirectAttributes.addFlashAttribute("success", "Doctor '" + fullName + "' updated successfully");
+        return "redirect:/dashboard/doctors";
+    }
+
+    /**
+     * Toggle doctor active/inactive
+     */
+    @PostMapping("/doctors/{id}/toggle")
+    public String toggleDoctor(@PathVariable UUID id,
+                               HttpSession session,
+                               RedirectAttributes redirectAttributes) {
+        Doctor admin = getAdminOrNull(session);
+        if (admin == null) {
+            return "redirect:/dashboard";
+        }
+
+        Doctor doctor = doctorRepository.findById(id).orElse(null);
+        if (doctor == null) {
+            redirectAttributes.addFlashAttribute("error", "Doctor not found");
+            return "redirect:/dashboard/doctors";
+        }
+
+        doctor.setActive(!doctor.getActive());
+        doctorRepository.save(doctor);
+
+        String status = doctor.getActive() ? "activated" : "deactivated";
+        log.info("Admin {} {} doctor: {}", admin.getFullName(), status, doctor.getFullName());
+        redirectAttributes.addFlashAttribute("success", "Doctor '" + doctor.getFullName() + "' " + status);
+        return "redirect:/dashboard/doctors";
+    }
+
+    private Doctor getAdminOrNull(HttpSession session) {
+        UUID doctorId = (UUID) session.getAttribute("doctorId");
+        if (doctorId == null) return null;
+        Doctor doctor = doctorRepository.findById(doctorId).orElse(null);
+        if (doctor == null || doctor.getDomain() != PhysicianDomain.ADMIN) return null;
+        return doctor;
     }
 
     /**

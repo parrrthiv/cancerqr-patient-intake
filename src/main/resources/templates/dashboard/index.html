@@ -17,6 +17,10 @@
                     <span class="text-gray-600">Tumor Board</span>
                 </div>
                 <div class="flex items-center space-x-4">
+                    <a th:if="${doctor.domain.name() == 'ADMIN'}" th:href="@{/dashboard/doctors}"
+                       class="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm">
+                        Manage Doctors
+                    </a>
                     <div class="text-right">
                         <p class="text-sm font-semibold text-gray-800" th:text="${doctor.fullName}">Dr. Name</p>
                         <p class="text-xs text-gray-500" th:text="${doctor.domain.displayName}">Department</p>
