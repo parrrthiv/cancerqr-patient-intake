@@ -18,9 +18,13 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import com.oncology.intake.entity.Doctor;
+import com.oncology.intake.repository.DoctorRepository;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -40,6 +44,7 @@ public class ConversationService {
     private final AuditService auditService;
     private final TumorBoardService tumorBoardService;
     private final CancerQRProtocolConfig protocolConfig;
+    private final DoctorRepository doctorRepository;
 
     // Validation patterns
     private static final Pattern AGE_PATTERN = Pattern.compile("^\\d{1,3}$");
@@ -47,6 +52,7 @@ public class ConversationService {
     private static final Pattern PAIN_SCALE_PATTERN = Pattern.compile("^(10|[0-9])$");
     private static final Pattern DATE_PATTERN = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
     private static final Pattern PAIN_BUTTON_PATTERN = Pattern.compile("^pain_(\\d+)$");
+    private static final Pattern REFERRAL_CODE_PATTERN = Pattern.compile("^REF-[A-Z0-9]{4}$");
 
     // Messages
     private static final String WELCOME_MESSAGE = """
@@ -64,6 +70,11 @@ public class ConversationService {
             Your data is encrypted and handled confidentially.
             
             Reply *YES* to continue or *NO* to stop.""";
+
+    private static final String ASK_REFERRAL_CODE_MESSAGE = """
+            If you were referred by a doctor, please enter their referral code (e.g. REF-A7X3).
+
+            Otherwise type *SKIP*.""";
 
     private static final String ASK_AGE_MESSAGE = """
             Let's start with some basic information.
@@ -149,6 +160,7 @@ public class ConversationService {
             switch (currentState) {
                 case INITIAL -> handleInitialState(patient);
                 case AWAITING_CONSENT -> handleConsentResponse(patient, messageText);
+                case ASK_REFERRAL_CODE -> handleReferralCodeInput(patient, messageText);
                 case ASK_CANCER_TYPE -> handleCancerTypeInput(patient, messageText);
                 case ASK_AGE -> handleAgeInput(patient, messageText);
                 case ASK_WEIGHT -> handleWeightInput(patient, messageText);
@@ -233,8 +245,8 @@ public class ConversationService {
 
         if (response.equals("YES") || response.equals("Y")) {
             patientIntakeService.recordConsent(patient.getId());
-            sendMessage(patient.getWhatsappNumber(), buildCancerTypeMessage());
-            patientIntakeService.updateConversationState(patient.getId(), ConversationState.ASK_CANCER_TYPE);
+            sendMessage(patient.getWhatsappNumber(), ASK_REFERRAL_CODE_MESSAGE);
+            patientIntakeService.updateConversationState(patient.getId(), ConversationState.ASK_REFERRAL_CODE);
         } else if (response.equals("NO") || response.equals("N")) {
             sendMessage(patient.getWhatsappNumber(), 
                     "Thank you. Your data will not be collected. " +
@@ -244,6 +256,34 @@ public class ConversationService {
             sendMessage(patient.getWhatsappNumber(), 
                     "Please reply *YES* to continue or *NO* to stop.");
         }
+    }
+
+    private void handleReferralCodeInput(Patient patient, String messageText) {
+        String input = messageText.trim().toUpperCase();
+
+        if (input.equals("SKIP") || input.equals("NO")) {
+            sendMessage(patient.getWhatsappNumber(), buildCancerTypeMessage());
+            patientIntakeService.updateConversationState(patient.getId(), ConversationState.ASK_CANCER_TYPE);
+            return;
+        }
+
+        if (!REFERRAL_CODE_PATTERN.matcher(input).matches()) {
+            sendMessage(patient.getWhatsappNumber(),
+                    "❌ Invalid referral code format. Please enter a code like *REF-A7X3*, or type *SKIP* to continue without one.");
+            return;
+        }
+
+        Optional<Doctor> referringDoctor = doctorRepository.findByReferralCode(input);
+        if (referringDoctor.isEmpty()) {
+            sendMessage(patient.getWhatsappNumber(),
+                    "❌ Referral code not found. Please check the code and try again, or type *SKIP* to continue without one.");
+            return;
+        }
+
+        patientIntakeService.linkReferringDoctor(patient.getId(), referringDoctor.get());
+        sendMessage(patient.getWhatsappNumber(),
+                "✅ Linked to Dr. " + referringDoctor.get().getFullName() + "\n\n" + buildCancerTypeMessage());
+        patientIntakeService.updateConversationState(patient.getId(), ConversationState.ASK_CANCER_TYPE);
     }
 
     private void handleCancerTypeInput(Patient patient, String messageText) {

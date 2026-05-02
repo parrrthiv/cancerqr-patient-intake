@@ -24,7 +24,22 @@
     </nav>
 
     <div class="max-w-7xl mx-auto px-4 py-8">
-        <h1 class="text-2xl font-bold text-gray-800 mb-6">👥 All Patients</h1>
+        <!-- Flash Messages -->
+        <div th:if="${success}" class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+            <span th:text="${success}"></span>
+        </div>
+        <div th:if="${error}" class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
+            <span th:text="${error}"></span>
+        </div>
+
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl font-bold text-gray-800">👥 <span th:text="${doctor != null and doctor.domain.name() == 'REFERRING_DOCTOR'} ? 'My Patients' : 'All Patients'">All Patients</span></h1>
+            <a th:if="${doctor != null and doctor.domain.name() == 'REFERRING_DOCTOR'}"
+               th:href="@{/dashboard/patients/add}"
+               class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                + Add Patient
+            </a>
+        </div>
 
         <div class="bg-white rounded-xl shadow-md overflow-hidden">
             <table class="w-full">
@@ -34,6 +49,7 @@
                         <th class="px-6 py-4">Cancer Type</th>
                         <th class="px-6 py-4">Age</th>
                         <th class="px-6 py-4">Pain</th>
+                        <th th:if="${doctor != null and doctor.domain.name() != 'REFERRING_DOCTOR'}" class="px-6 py-4">Referred By</th>
                         <th class="px-6 py-4">Review Progress</th>
                         <th class="px-6 py-4">Protocol Status</th>
                         <th class="px-6 py-4">Actions</th>
@@ -52,10 +68,16 @@
                         </td>
                         <td class="px-6 py-4" th:text="${data.patient.age != null ? data.patient.age : '-'}">45</td>
                         <td class="px-6 py-4">
-                            <span th:if="${data.patient.painScale != null}" 
+                            <span th:if="${data.patient.painScale != null}"
                                   th:text="${data.patient.painScale} + '/10'"
                                   th:class="${data.patient.painScale >= 7 ? 'text-red-600 font-semibold' : 'text-gray-600'}">5/10</span>
                             <span th:unless="${data.patient.painScale != null}">-</span>
+                        </td>
+                        <td th:if="${doctor != null and doctor.domain.name() != 'REFERRING_DOCTOR'}" class="px-6 py-4">
+                            <span th:if="${data.patient.referringDoctor != null}"
+                                  class="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full"
+                                  th:text="${data.patient.referringDoctor.fullName}">Dr. Name</span>
+                            <span th:unless="${data.patient.referringDoctor != null}" class="text-gray-400 text-sm">-</span>
                         </td>
                         <td class="px-6 py-4">
                             <div class="flex items-center space-x-2">

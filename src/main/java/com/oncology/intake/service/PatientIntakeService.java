@@ -1,6 +1,7 @@
 package com.oncology.intake.service;
 
 import com.oncology.intake.entity.AuditLog.AuditAction;
+import com.oncology.intake.entity.Doctor;
 import com.oncology.intake.entity.Patient;
 import com.oncology.intake.entity.Patient.ConversationState;
 import com.oncology.intake.entity.Report;
@@ -219,6 +220,20 @@ public class PatientIntakeService {
         
         log.info("Stored {} report for patient {}", reportType, patientId);
         return savedReport;
+    }
+
+    /**
+     * Link a referring doctor to a patient
+     */
+    @Transactional
+    public Patient linkReferringDoctor(UUID patientId, Doctor doctor) {
+        Patient patient = getPatient(patientId);
+        patient.setReferringDoctor(doctor);
+        patient.setLastInteractionAt(LocalDateTime.now());
+
+        auditService.logPatientAction(patientId, AuditAction.PATIENT_UPDATED,
+                "Linked to referring doctor: " + doctor.getFullName());
+        return patientRepository.save(patient);
     }
 
     /**

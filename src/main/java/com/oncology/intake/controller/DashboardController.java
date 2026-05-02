@@ -19,6 +19,11 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import com.oncology.intake.service.PatientIntakeService;
+
+import java.math.BigDecimal;
+import java.security.SecureRandom;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -42,6 +47,10 @@ public class DashboardController {
     private final StorageService storageService;
     private final ReportDataExtractionService reportDataExtractionService;
     private final CancerQRProtocolConfig protocolConfig;
+    private final PatientIntakeService patientIntakeService;
+
+    private static final String REFERRAL_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     /**
      * Login page
@@ -71,7 +80,7 @@ public class DashboardController {
         
         Optional<Doctor> doctorOpt = doctorRepository.findByUsername(username);
         
-        if (doctorOpt.isPresent() && doctorOpt.get().getPassword().equals(password)) {
+        if (doctorOpt.isPresent() && doctorOpt.get().getPassword().equals(password) && doctorOpt.get().getActive()) {
             Doctor doctor = doctorOpt.get();
             session.setAttribute("doctorId", doctor.getId());
             session.setAttribute("doctorName", doctor.getFullName());
@@ -110,16 +119,25 @@ public class DashboardController {
             return "redirect:/dashboard/login";
         }
 
+        // Referring doctors get a different dashboard view
+        if (doctor.getDomain() == PhysicianDomain.REFERRING_DOCTOR) {
+            List<Patient> myPatients = patientRepository.findByReferringDoctorId(doctorId);
+            model.addAttribute("doctor", doctor);
+            model.addAttribute("myPatients", myPatients);
+            model.addAttribute("patientCount", myPatients.size());
+            return "dashboard/index";
+        }
+
         // Get pending reviews for this doctor's domain
         List<TumorBoardReview> pendingReviews = tumorBoardService
                 .getUnassignedReviewsForDomain(doctor.getDomain());
-        
+
         // Get reviews assigned to this doctor
         List<TumorBoardReview> myReviews = reviewRepository.findByDoctorId(doctorId);
-        
+
         // Stats
         long pendingCount = myReviews.stream()
-                .filter(r -> r.getStatus() == TumorBoardReview.ReviewStatus.PENDING 
+                .filter(r -> r.getStatus() == TumorBoardReview.ReviewStatus.PENDING
                           || r.getStatus() == TumorBoardReview.ReviewStatus.IN_PROGRESS)
                 .count();
         long completedCount = myReviews.stream()
@@ -153,6 +171,24 @@ public class DashboardController {
 
         if (doctor == null || patient == null) {
             return "redirect:/dashboard";
+        }
+
+        // Referring doctors can only view their own patients (read-only)
+        if (doctor.getDomain() == PhysicianDomain.REFERRING_DOCTOR) {
+            if (patient.getReferringDoctor() == null || !patient.getReferringDoctor().getId().equals(doctorId)) {
+                return "redirect:/dashboard";
+            }
+            model.addAttribute("doctor", doctor);
+            model.addAttribute("patient", patient);
+            model.addAttribute("readOnly", true);
+            List<Report> reports = reportRepository.findByPatientId(patientId);
+            model.addAttribute("reports", reports);
+            Analysis latestAnalysis = analysisRepository
+                    .findFirstByPatientIdOrderByCreatedAtDesc(patientId).orElse(null);
+            model.addAttribute("analysis", latestAnalysis);
+            Map<String, Object> reviewStatus = tumorBoardService.getReviewStatusForPatient(patientId);
+            model.addAttribute("reviewStatus", reviewStatus);
+            return "dashboard/patient-review";
         }
 
         // Extract report data if not already done
@@ -344,7 +380,21 @@ public class DashboardController {
             return "redirect:/dashboard/login";
         }
 
-        List<Patient> patients = patientRepository.findAll();
+        Doctor doctor = doctorRepository.findById(doctorId).orElse(null);
+        if (doctor == null) {
+            session.invalidate();
+            return "redirect:/dashboard/login";
+        }
+
+        // Referring doctors only see their own patients
+        List<Patient> patients;
+        if (doctor.getDomain() == PhysicianDomain.REFERRING_DOCTOR) {
+            patients = patientRepository.findByReferringDoctorId(doctorId);
+        } else {
+            patients = patientRepository.findAll();
+        }
+
+        model.addAttribute("doctor", doctor);
         
         // Add review status for each patient
         List<Map<String, Object>> patientData = new ArrayList<>();
@@ -386,6 +436,71 @@ public class DashboardController {
         model.addAttribute("reviews", reviews);
 
         return "dashboard/protocol";
+    }
+
+    // ── Add Patient (Referring Doctors Only) ─────────────────────────────
+
+    @GetMapping("/patients/add")
+    public String addPatientForm(HttpSession session, Model model) {
+        Doctor doctor = getReferringDoctorOrNull(session);
+        if (doctor == null) {
+            return "redirect:/dashboard";
+        }
+        model.addAttribute("doctor", doctor);
+        model.addAttribute("cancerProtocols", protocolConfig.getCancerProtocols());
+        return "dashboard/add-patient";
+    }
+
+    @PostMapping("/patients/add")
+    public String addPatient(@RequestParam String name,
+                             @RequestParam String whatsappNumber,
+                             @RequestParam String cancerType,
+                             @RequestParam(required = false) Integer age,
+                             @RequestParam(required = false) BigDecimal weightKg,
+                             @RequestParam(required = false) Integer painScale,
+                             @RequestParam(required = false) String diagnosisDate,
+                             HttpSession session,
+                             RedirectAttributes redirectAttributes) {
+        Doctor doctor = getReferringDoctorOrNull(session);
+        if (doctor == null) {
+            return "redirect:/dashboard";
+        }
+
+        // Check if patient already exists
+        if (patientRepository.existsByWhatsappNumber(whatsappNumber)) {
+            redirectAttributes.addFlashAttribute("error", "A patient with this WhatsApp number already exists.");
+            return "redirect:/dashboard/patients/add";
+        }
+
+        Patient patient = Patient.builder()
+                .name(name)
+                .whatsappNumber(whatsappNumber)
+                .cancerType(cancerType)
+                .age(age)
+                .weightKg(weightKg)
+                .painScale(painScale)
+                .diagnosisDate(diagnosisDate != null && !diagnosisDate.isBlank() ? LocalDate.parse(diagnosisDate) : null)
+                .consentGiven(true)
+                .conversationState(Patient.ConversationState.COMPLETED)
+                .intakeCompleted(true)
+                .referringDoctor(doctor)
+                .build();
+        patient = patientRepository.save(patient);
+
+        // Create tumor board review tasks
+        tumorBoardService.createReviewTasksForPatient(patient.getId());
+
+        log.info("Referring doctor {} added patient: {}", doctor.getFullName(), name);
+        redirectAttributes.addFlashAttribute("success", "Patient '" + name + "' added successfully");
+        return "redirect:/dashboard/patients";
+    }
+
+    private Doctor getReferringDoctorOrNull(HttpSession session) {
+        UUID doctorId = (UUID) session.getAttribute("doctorId");
+        if (doctorId == null) return null;
+        Doctor doctor = doctorRepository.findById(doctorId).orElse(null);
+        if (doctor == null || doctor.getDomain() != PhysicianDomain.REFERRING_DOCTOR) return null;
+        return doctor;
     }
 
     // ── Doctor Management (Admin Only) ──────────────────────────────────
@@ -439,15 +554,20 @@ public class DashboardController {
             return "redirect:/dashboard/doctors";
         }
 
-        Doctor doctor = Doctor.builder()
+        Doctor.DoctorBuilder builder = Doctor.builder()
                 .fullName(fullName)
                 .username(username)
                 .password(password)
                 .domain(domain)
                 .email(email)
                 .phone(phone)
-                .active(true)
-                .build();
+                .active(true);
+
+        if (domain == PhysicianDomain.REFERRING_DOCTOR) {
+            builder.referralCode(generateUniqueReferralCode());
+        }
+
+        Doctor doctor = builder.build();
         doctorRepository.save(doctor);
 
         log.info("Admin {} created doctor: {} ({})", admin.getFullName(), fullName, domain);
@@ -566,6 +686,20 @@ public class DashboardController {
         Doctor doctor = doctorRepository.findById(doctorId).orElse(null);
         if (doctor == null || doctor.getDomain() != PhysicianDomain.ADMIN) return null;
         return doctor;
+    }
+
+    private String generateUniqueReferralCode() {
+        for (int i = 0; i < 100; i++) {
+            StringBuilder sb = new StringBuilder("REF-");
+            for (int j = 0; j < 4; j++) {
+                sb.append(REFERRAL_CODE_CHARS.charAt(RANDOM.nextInt(REFERRAL_CODE_CHARS.length())));
+            }
+            String code = sb.toString();
+            if (doctorRepository.findByReferralCode(code).isEmpty()) {
+                return code;
+            }
+        }
+        throw new RuntimeException("Failed to generate unique referral code");
     }
 
     /**

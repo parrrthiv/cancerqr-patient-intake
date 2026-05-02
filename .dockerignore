@@ -1,0 +1,13 @@
+target/
+.git/
+.gitignore
+*.md
+uploads/
+.env
+.idea/
+*.iml
+.vscode/
+.DS_Store
+*.log
+postman_collection.json
+curl_examples.sh

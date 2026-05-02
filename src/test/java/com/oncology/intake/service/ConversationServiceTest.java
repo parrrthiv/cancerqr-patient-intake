@@ -3,6 +3,7 @@ package com.oncology.intake.service;
 import com.oncology.intake.config.CancerQRProtocolConfig;
 import com.oncology.intake.entity.Patient;
 import com.oncology.intake.entity.Patient.ConversationState;
+import com.oncology.intake.repository.DoctorRepository;
 import com.oncology.intake.repository.PatientRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -51,6 +52,9 @@ class ConversationServiceTest {
     @Mock
     private CancerQRProtocolConfig protocolConfig;
 
+    @Mock
+    private DoctorRepository doctorRepository;
+
     private ConversationService conversationService;
 
     @Captor
@@ -67,7 +71,8 @@ class ConversationServiceTest {
                 analysisService,
                 auditService,
                 tumorBoardService,
-                protocolConfig
+                protocolConfig,
+                doctorRepository
         );
 
         testPatient = Patient.builder()
@@ -119,8 +124,8 @@ class ConversationServiceTest {
         }
 
         @Test
-        @DisplayName("YES consent should proceed to ASK_CANCER_TYPE")
-        void yesConsentShouldProceedToAskCancerType() {
+        @DisplayName("YES consent should proceed to ASK_REFERRAL_CODE")
+        void yesConsentShouldProceedToAskReferralCode() {
             // Given
             testPatient.setConversationState(ConversationState.AWAITING_CONSENT);
             when(patientIntakeService.findOrCreatePatient(eq(TEST_PHONE), any()))
@@ -135,7 +140,7 @@ class ConversationServiceTest {
             // Then
             verify(patientIntakeService).recordConsent(testPatient.getId());
             verify(patientIntakeService).updateConversationState(
-                    testPatient.getId(), ConversationState.ASK_CANCER_TYPE);
+                    testPatient.getId(), ConversationState.ASK_REFERRAL_CODE);
         }
 
         @Test

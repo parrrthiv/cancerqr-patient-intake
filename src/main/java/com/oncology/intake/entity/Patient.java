@@ -103,6 +103,10 @@ public class Patient {
     @Column(name = "consent_timestamp")
     private LocalDateTime consentTimestamp;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "referring_doctor_id")
+    private Doctor referringDoctor;
+
     @Column(name = "cancer_stage", length = 50)
     private String cancerStage;
 
@@ -140,6 +144,7 @@ public class Patient {
     public enum ConversationState {
         INITIAL,
         AWAITING_CONSENT,
+        ASK_REFERRAL_CODE,
         ASK_CANCER_TYPE,
         ASK_AGE,
         ASK_WEIGHT,

@@ -48,7 +48,10 @@ public class DataInitializer {
             // Create admin user
             createDoctorIfNotExists("admin", "admin123", "System Admin", PhysicianDomain.ADMIN);
 
-            log.info("Created 8 tumor board doctors + 1 admin");
+            // Create sample referring doctor
+            createReferringDoctorIfNotExists("referrer", "demo123", "Dr. Kavita Reddy", "REF-TEST");
+
+            log.info("Created 8 tumor board doctors + 1 admin + 1 referring doctor");
 
             // Create sample patients for testing
             createSamplePatients();
@@ -69,6 +72,22 @@ public class DataInitializer {
                     .build();
             doctorRepository.save(doctor);
             log.debug("Created doctor: {} ({})", fullName, domain);
+        }
+    }
+
+    private void createReferringDoctorIfNotExists(String username, String password, String fullName, String referralCode) {
+        if (!doctorRepository.existsByUsername(username)) {
+            Doctor doctor = Doctor.builder()
+                    .username(username)
+                    .password(password)
+                    .fullName(fullName)
+                    .domain(PhysicianDomain.REFERRING_DOCTOR)
+                    .email(username + "@cancerqr.in")
+                    .referralCode(referralCode)
+                    .active(true)
+                    .build();
+            doctorRepository.save(doctor);
+            log.debug("Created referring doctor: {} (code: {})", fullName, referralCode);
         }
     }
 

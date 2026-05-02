@@ -81,6 +81,11 @@ public interface PatientRepository extends JpaRepository<Patient, UUID> {
     List<Patient> findPatientsWithoutAnalysis();
 
     /**
+     * Find patients referred by a specific doctor
+     */
+    List<Patient> findByReferringDoctorId(UUID doctorId);
+
+    /**
      * Anonymize patient data (for GDPR/retention compliance)
      */
     @Modifying

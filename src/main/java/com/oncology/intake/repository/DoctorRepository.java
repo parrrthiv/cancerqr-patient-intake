@@ -16,4 +16,6 @@ public interface DoctorRepository extends JpaRepository<Doctor, UUID> {
     Optional<Doctor> findByDomain(PhysicianDomain domain);
     
     boolean existsByUsername(String username);
+
+    Optional<Doctor> findByReferralCode(String referralCode);
 }

@@ -41,7 +41,7 @@ public class TumorBoardService {
 
         // Create a review task for each physician domain
         for (PhysicianDomain domain : PhysicianDomain.values()) {
-            if (domain == PhysicianDomain.ADMIN) continue; // Skip admin
+            if (domain == PhysicianDomain.ADMIN || domain == PhysicianDomain.REFERRING_DOCTOR) continue;
 
             // Check if review already exists
             if (reviewRepository.findByPatientIdAndPhysicianDomain(patientId, domain).isEmpty()) {

@@ -43,6 +43,9 @@ public class Doctor {
     @Column
     private String phone;
 
+    @Column(unique = true)
+    private String referralCode;
+
     @Column(nullable = false)
     @Builder.Default
     private Boolean active = true;
@@ -65,7 +68,8 @@ public class Doctor {
         AYURVEDA_INTEGRATIVE("Ayurveda/Integrative"),
         FUNCTIONAL_MEDICINE("Functional Medicine"),
         DIETICIAN_NUTRITION("Dietician/Nutrition"),
-        ADMIN("Administrator");
+        ADMIN("Administrator"),
+        REFERRING_DOCTOR("Referring Doctor");
 
         private final String displayName;
 

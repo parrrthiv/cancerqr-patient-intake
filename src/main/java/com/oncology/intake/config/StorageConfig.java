@@ -49,8 +49,9 @@ public class StorageConfig {
         var builder = S3Client.builder()
                 .region(Region.of(s3.getRegion()));
 
-        // Configure credentials
-        if (s3.getAccessKey() != null && s3.getSecretKey() != null) {
+        // Configure credentials (fall back to IAM instance role if no keys provided)
+        if (s3.getAccessKey() != null && !s3.getAccessKey().isBlank()
+                && s3.getSecretKey() != null && !s3.getSecretKey().isBlank()) {
             builder.credentialsProvider(
                     StaticCredentialsProvider.create(
                             AwsBasicCredentials.create(s3.getAccessKey(), s3.getSecretKey())
