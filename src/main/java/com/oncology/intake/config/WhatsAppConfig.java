@@ -28,8 +28,6 @@ public class WhatsAppConfig {
     @NotBlank(message = "WhatsApp verify token is required")
     private String verifyToken;
 
-    private String webhookSecret;
-
     /**
      * Get the messages endpoint URL
      */

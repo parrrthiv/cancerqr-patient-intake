@@ -9,10 +9,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-import java.nio.charset.StandardCharsets;
-import java.util.HexFormat;
 import java.util.List;
 
 /**
@@ -55,25 +51,19 @@ public class WhatsAppWebhookController {
 
     /**
      * Webhook event receiver (POST)
-     * Receives all incoming messages and status updates from WhatsApp
+     * Receives all incoming messages and status updates from WhatsApp.
+     *
+     * NOTE: Webhook signature verification (X-Hub-Signature-256) is intentionally
+     * not performed. If you want to enforce that requests truly come from Meta,
+     * reintroduce HMAC-SHA256 verification using the App Secret and read the
+     * request body once as raw bytes (do not declare two @RequestBody params).
      */
     @PostMapping
     public ResponseEntity<String> receiveWebhook(
-            @RequestBody WebhookPayload payload,
-            @RequestHeader(value = "X-Hub-Signature-256", required = false) String signature,
-            @RequestBody(required = false) String rawBody) {
-        
+            @RequestBody WebhookPayload payload) {
+
         log.debug("Webhook event received");
-        
-        // Verify signature if webhook secret is configured
-        if (whatsAppConfig.getWebhookSecret() != null && 
-            !whatsAppConfig.getWebhookSecret().isEmpty() &&
-            !verifySignature(rawBody, signature)) {
-            log.warn("Invalid webhook signature");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Invalid signature");
-        }
-        
-        // Process the webhook payload
+
         try {
             processWebhookPayload(payload);
             return ResponseEntity.ok("EVENT_RECEIVED");
@@ -231,30 +221,6 @@ public class WhatsAppWebhookController {
                     }
                 }
             }
-        }
-    }
-
-    /**
-     * Verify the webhook signature
-     */
-    private boolean verifySignature(String payload, String signature) {
-        if (payload == null || signature == null) {
-            return false;
-        }
-        
-        try {
-            String secret = whatsAppConfig.getWebhookSecret();
-            Mac mac = Mac.getInstance("HmacSHA256");
-            SecretKeySpec secretKeySpec = new SecretKeySpec(
-                    secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-            mac.init(secretKeySpec);
-            byte[] hash = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
-            String expectedSignature = "sha256=" + HexFormat.of().formatHex(hash);
-            
-            return expectedSignature.equals(signature);
-        } catch (Exception e) {
-            log.error("Error verifying signature", e);
-            return false;
         }
     }
 

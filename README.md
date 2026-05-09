@@ -1,407 +1,287 @@
-# Cancer Patient Intake System
+# CancerQR Patient Intake
 
-A secure Spring Boot backend application that integrates with WhatsApp Business Cloud API to capture cancer patient intake details, store medical reports, and generate initial medicine suggestions based on preset formulas.
+Spring Boot 3.2.1 / Java 17 backend that runs a WhatsApp-based intake flow for cancer patients, stores their medical reports, generates a rule-based protocol suggestion, and exposes a physician dashboard with a tumor-board review workflow.
 
-> ⚠️ **IMPORTANT DISCLAIMER**: This system provides **initial suggestions only** and does NOT replace professional medical advice. All recommendations must be reviewed by a qualified oncologist before any treatment begins.
+> **Medical disclaimer**: All suggestions are computer-generated initial assessments. They are not prescriptions and must be reviewed by a qualified oncologist before any treatment is started, stopped, or changed.
 
-## Table of Contents
+---
 
-- [Features](#features)
-- [Architecture](#architecture)
-- [Prerequisites](#prerequisites)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [WhatsApp Setup](#whatsapp-setup)
-- [API Endpoints](#api-endpoints)
-- [Database Schema](#database-schema)
-- [Security](#security)
-- [Testing](#testing)
-- [Deployment](#deployment)
+## What it does
 
-## Features
+- **WhatsApp intake bot** — patients message the bot and walk through a 14-state conversation that collects consent, referral code, cancer type, age, weight, pain scale, diagnosis date, and uploads (PET scan + blood report).
+- **Rule-based protocol engine** — `formula-rules.yml` defines dosing tables, herb/mushroom selections, alert thresholds, and supportive care. The engine derives metrics (pain/weight/age categories) and emits a per-patient suggestion with mandatory disclaimers.
+- **Tumor board review** — once intake completes, the case is queued for a multi-domain (8 physician domains) review. A `FinalProtocol` is produced after sign-off.
+- **Physician dashboard** — Thymeleaf-rendered admin/doctor UI for triaging cases, adding patients on behalf of referring doctors, reviewing analyses, and managing physicians.
+- **Pluggable storage** — local filesystem, AWS S3, or MinIO for uploaded reports.
+- **Optional AI verification** — Anthropic Claude can review generated analyses if `ANTHROPIC_API_KEY` is set.
 
-### Patient Intake Flow
-- Structured WhatsApp conversation flow for patient intake
-- Capture patient demographics: age, weight, pain scale, diagnosis date
-- Medical report uploads: PET scan and blood report (images/PDFs)
-- Input validation with friendly error messages
-- Interactive buttons for pain scale selection
-
-### Medicine Suggestion Engine
-- Rule-based formula engine with versioning
-- Pain-based treatment recommendations (WHO analgesic ladder)
-- Dose adjustments for age and weight
-- Supportive care recommendations
-- Alert system for urgent cases
-- Mandatory disclaimers on all outputs
-
-### Storage & Security
-- Multi-backend file storage (local, S3, MinIO)
-- Encrypted data at rest
-- HTTPS/TLS support
-- Webhook signature verification
-- PHI-safe logging (no sensitive data logged)
-- Comprehensive audit logging
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        WhatsApp Users                           │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                WhatsApp Business Cloud API                      │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Spring Boot Application                       │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │              WhatsApp Webhook Controller                  │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                │                                 │
-│  ┌─────────────┐  ┌───────────┴───────────┐  ┌─────────────┐   │
-│  │ Conversation│  │   Patient Intake      │  │  Analysis   │   │
-│  │   Service   │──│      Service          │──│   Service   │   │
-│  │(State Machine)│ └───────────────────────┘  └─────────────┘   │
-│  └─────────────┘              │                      │          │
-│         │         ┌───────────┴──────────┐  ┌────────┴───────┐  │
-│         │         │    Storage Service   │  │ Formula Engine │  │
-│         │         └──────────────────────┘  └────────────────┘  │
-│         │                     │                                  │
-│  ┌──────┴───────────┐  ┌─────┴─────┐                           │
-│  │ WhatsApp Client  │  │  S3/MinIO │                           │
-│  └──────────────────┘  └───────────┘                           │
-│                                                                  │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │              PostgreSQL / H2 Database                    │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │   │
-│  │  │ Patients │  │ Reports  │  │ Analyses │  │  Audit   │ │   │
-│  │  └──────────┘  └──────────┘  └──────────┘  └──────────┘ │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+WhatsApp Cloud API
+    │  POST /api/webhook/whatsapp
+    ▼
+WhatsAppWebhookController
+    │
+    ▼
+ConversationService  (14-state machine)
+    │
+    ├─► PatientIntakeService     ──►  StorageService  (S3 / local / MinIO)
+    │                                  ReportDataExtractionService
+    │
+    ├─► AnalysisService  ──►  FormulaEngine   (formula-rules.yml)
+    │                          │
+    │                          └─►  AIVerificationService (optional Claude review)
+    │
+    └─► WhatsAppClientService   (replies, interactive buttons, media)
+
+DashboardController  (/api/dashboard/*)
+    └─► TumorBoardService  ──►  CancerQRProtocolConfig (cancerqr-protocols.yml)
 ```
 
-## Prerequisites
-
-- Java 17 or higher
-- Maven 3.8+
-- PostgreSQL 14+ (for production) or H2 (for development)
-- WhatsApp Business Account with Cloud API access
-- S3-compatible storage (AWS S3 or MinIO) for production
-
-## Quick Start
-
-### 1. Clone and Build
-
-```bash
-git clone <repository-url>
-cd cancer-intake-system
-mvn clean install
-```
-
-### 2. Configure Environment
-
-Create a `.env` file or set environment variables:
-
-```bash
-# WhatsApp Configuration (Required)
-export WHATSAPP_PHONE_NUMBER_ID=your-phone-number-id
-export WHATSAPP_ACCESS_TOKEN=your-access-token
-export WHATSAPP_VERIFY_TOKEN=your-verify-token
-
-# Database (Optional - defaults to H2)
-export DATABASE_URL=jdbc:postgresql://localhost:5432/oncologydb
-export DATABASE_USERNAME=postgres
-export DATABASE_PASSWORD=your-password
-
-# Storage (Optional - defaults to local)
-export STORAGE_TYPE=local  # or s3, minio
-export LOCAL_STORAGE_PATH=./uploads
-```
-
-### 3. Run the Application
-
-```bash
-# Development mode (H2 database)
-mvn spring-boot:run
-
-# Or with production profile
-mvn spring-boot:run -Dspring-boot.run.profiles=production
-```
-
-### 4. Expose Webhook (Development)
-
-Use ngrok or similar to expose local server:
-
-```bash
-ngrok http 8080
-```
-
-Use the ngrok URL for WhatsApp webhook configuration.
-
-## Configuration
-
-### Application Properties
-
-Key configuration in `application.yml`:
-
-```yaml
-# WhatsApp API
-whatsapp:
-  api:
-    base-url: https://graph.facebook.com/v18.0
-    phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID}
-    access-token: ${WHATSAPP_ACCESS_TOKEN}
-    verify-token: ${WHATSAPP_VERIFY_TOKEN}
-    webhook-secret: ${WHATSAPP_WEBHOOK_SECRET}
-
-# Storage
-storage:
-  type: ${STORAGE_TYPE:local}
-  local:
-    base-path: ${LOCAL_STORAGE_PATH:./uploads}
-  s3:
-    bucket-name: ${S3_BUCKET_NAME:oncology-reports}
-    region: ${AWS_REGION:us-east-1}
-
-# Formula Engine
-formula:
-  version: "1.0.0"
-  config-path: classpath:formula-rules.yml
-```
-
-### Formula Rules
-
-Medicine rules are defined in `formula-rules.yml`:
-
-```yaml
-pain_management:
-  - level: "MILD"
-    pain_range: [1, 3]
-    medicines:
-      - name: "Paracetamol"
-        category: "Non-opioid analgesic"
-        base_dose_mg: 500
-        frequency: "every 6-8 hours"
-        max_daily_mg: 4000
-        duration_days: 7
-```
-
-## WhatsApp Setup
-
-### 1. Create WhatsApp Business Account
-
-1. Go to [Meta Business Suite](https://business.facebook.com/)
-2. Create a WhatsApp Business account
-3. Enable Cloud API access
-
-### 2. Configure Webhook
-
-1. In Meta Developer Console, go to WhatsApp > Configuration
-2. Set Webhook URL: `https://your-domain.com/api/webhook/whatsapp`
-3. Set Verify Token: (same as `WHATSAPP_VERIFY_TOKEN`)
-4. Subscribe to: `messages`, `message_status`
-
-### 3. Get API Credentials
-
-1. Phone Number ID: WhatsApp > Getting Started
-2. Access Token: Create a System User token with `whatsapp_business_messaging` permission
-
-## API Endpoints
-
-### Webhook Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/webhook/whatsapp` | Webhook verification |
-| POST | `/api/webhook/whatsapp` | Receive WhatsApp events |
-
-### Health Check
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/actuator/health` | Application health |
-| GET | `/api/actuator/info` | Application info |
-
-## Database Schema
-
-### Patients Table
-
-```sql
-CREATE TABLE patients (
-    id UUID PRIMARY KEY,
-    whatsapp_number VARCHAR(20) UNIQUE NOT NULL,
-    age INTEGER,
-    weight_kg DECIMAL(5,2),
-    pain_scale INTEGER,
-    diagnosis_date DATE,
-    conversation_state VARCHAR(50) NOT NULL,
-    intake_completed BOOLEAN DEFAULT FALSE,
-    pet_scan_uploaded BOOLEAN DEFAULT FALSE,
-    blood_report_uploaded BOOLEAN DEFAULT FALSE,
-    consent_given BOOLEAN DEFAULT FALSE,
-    consent_timestamp TIMESTAMP,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL,
-    last_interaction_at TIMESTAMP
-);
-```
-
-### Reports Table
-
-```sql
-CREATE TABLE reports (
-    id UUID PRIMARY KEY,
-    patient_id UUID REFERENCES patients(id),
-    report_type VARCHAR(50) NOT NULL,
-    storage_location VARCHAR(500) NOT NULL,
-    file_name VARCHAR(255) NOT NULL,
-    original_file_name VARCHAR(255),
-    content_type VARCHAR(100) NOT NULL,
-    file_size_bytes BIGINT,
-    checksum VARCHAR(64),
-    whatsapp_media_id VARCHAR(100),
-    processed BOOLEAN DEFAULT FALSE,
-    uploaded_at TIMESTAMP NOT NULL
-);
-```
-
-### Analyses Table
-
-```sql
-CREATE TABLE analyses (
-    id UUID PRIMARY KEY,
-    patient_id UUID REFERENCES patients(id),
-    formula_version VARCHAR(20) NOT NULL,
-    derived_metrics_json JSONB,
-    recommended_medicines_json JSONB,
-    supportive_care_json JSONB,
-    alerts_json JSONB,
-    assessment_summary TEXT,
-    disclaimer_text TEXT NOT NULL,
-    requires_urgent_review BOOLEAN DEFAULT FALSE,
-    sent_to_patient BOOLEAN DEFAULT FALSE,
-    sent_at TIMESTAMP,
-    reviewed_by_physician BOOLEAN DEFAULT FALSE,
-    physician_review_notes TEXT,
-    input_snapshot_json JSONB,
-    created_at TIMESTAMP NOT NULL
-);
-```
-
-## Security
-
-### Data Protection
-
-- All PHI is encrypted at rest
-- HTTPS required in production
-- Webhook signature verification
-- PHI excluded from logs
-
-### Privacy Compliance
-
-- Consent tracking before data collection
-- Data anonymization support
-- Audit logging for all data access
-- Retention policy support
-
-### Best Practices
-
-1. Never log patient data
-2. Use environment variables for secrets
-3. Enable webhook signature verification
-4. Regular security audits
-
-## Testing
-
-### Run Tests
-
-```bash
-# All tests
-mvn test
-
-# Specific test class
-mvn test -Dtest=FormulaEngineTest
-
-# With coverage
-mvn test jacoco:report
-```
-
-### Test Categories
-
-- **Unit Tests**: Formula engine, validation logic
-- **Integration Tests**: Database, storage operations
-- **API Tests**: Webhook endpoints
-
-## Deployment
-
-### Docker
-
-```dockerfile
-FROM eclipse-temurin:17-jre
-COPY target/*.jar app.jar
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app.jar"]
-```
-
-### Docker Compose
-
-```yaml
-version: '3.8'
-services:
-  app:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      - SPRING_PROFILES_ACTIVE=production
-      - DATABASE_URL=jdbc:postgresql://db:5432/oncologydb
-    depends_on:
-      - db
-      - minio
-  
-  db:
-    image: postgres:14
-    environment:
-      POSTGRES_DB: oncologydb
-      POSTGRES_PASSWORD: secret
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-  
-  minio:
-    image: minio/minio
-    command: server /data --console-address ":9001"
-    volumes:
-      - miniodata:/data
-
-volumes:
-  pgdata:
-  miniodata:
-```
-
-### Production Checklist
-
-- [ ] Use PostgreSQL with proper backup
-- [ ] Configure S3/MinIO for file storage
-- [ ] Set up HTTPS/TLS
-- [ ] Enable webhook signature verification
-- [ ] Configure proper logging
-- [ ] Set up monitoring and alerts
-- [ ] Review and update formula rules with medical team
-- [ ] Legal review of disclaimers
-
-## License
-
-MIT License - See LICENSE file
-
-## Support
-
-For issues and questions, please create a GitHub issue.
+The app runs on `/api` (Spring `server.servlet.context-path`). All HTTP routes below are relative to `/api`.
 
 ---
 
-**⚠️ MEDICAL DISCLAIMER**: This software is intended for initial assessment purposes only. It does not provide medical diagnoses or treatment recommendations. All output from this system must be reviewed by qualified healthcare professionals. Do not start, stop, or change any medication based solely on this system's suggestions.
+## Prerequisites
+
+- Java 17 / Maven 3.8+
+- PostgreSQL 14+ for production (H2 in-memory works out of the box for local dev)
+- WhatsApp Business Cloud API credentials (Meta Developer Console)
+- An S3 bucket if you want production-grade storage
+
+---
+
+## Quick start (local, H2)
+
+```bash
+git clone https://github.com/parrrthiv/cancerqr-patient-intake.git
+cd cancerqr-patient-intake
+
+./mvnw clean package -DskipTests
+./mvnw spring-boot:run
+```
+
+App listens on `http://localhost:8080/api`. Health check: `GET /api/actuator/health`.
+
+To make the WhatsApp webhook reachable from Meta during development, expose it with ngrok:
+
+```bash
+ngrok http 8080
+# Use https://<id>.ngrok.io/api/webhook/whatsapp as the Meta Callback URL
+```
+
+---
+
+## Quick start (Docker)
+
+The repo ships a multi-stage `Dockerfile` and a `docker-compose.yml` that bundles a Postgres container.
+
+```bash
+cp deploy/env.example .env
+# fill in DB_PASSWORD, WhatsApp creds, S3 creds, ENCRYPTION_KEY, JWT_SECRET
+
+docker compose up -d --build
+docker compose logs -f app
+```
+
+Or run the image standalone against an external database:
+
+```bash
+docker build -t cancerqr-app .
+
+docker run -d --name cancerqr -p 8080:8080 \
+  -e SPRING_PROFILES_ACTIVE=production \
+  -e DB_HOST=your-rds-endpoint -e DB_PORT=5432 -e DB_NAME=oncologydb \
+  -e DB_USERNAME=postgres -e DB_PASSWORD=... \
+  -e STORAGE_TYPE=s3 -e S3_BUCKET_NAME=... -e AWS_REGION=us-east-1 \
+  -e AWS_ACCESS_KEY=... -e AWS_SECRET_KEY=... \
+  -e WHATSAPP_PHONE_NUMBER_ID=... -e WHATSAPP_ACCESS_TOKEN=... \
+  -e WHATSAPP_VERIFY_TOKEN=... \
+  -e ENCRYPTION_KEY=... -e JWT_SECRET=... \
+  cancerqr-app
+```
+
+---
+
+## Configuration
+
+`src/main/resources/application.yml` defines three profiles:
+
+| Profile | DB | Storage | Used for |
+|---|---|---|---|
+| _(default)_ | H2 in-memory | local filesystem | `./mvnw spring-boot:run` (dev) |
+| `local-pg` | PostgreSQL on `localhost:5432` | local filesystem | running against a local Postgres |
+| `production` | PostgreSQL via `DB_HOST` / `DB_PORT` / `DB_NAME` | S3 | RDS / EC2 deployment |
+
+Production profile expects these environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` | PostgreSQL connection |
+| `STORAGE_TYPE=s3`, `S3_BUCKET_NAME`, `AWS_REGION`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY` | S3 storage |
+| `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN` | WhatsApp Cloud API |
+| `ENCRYPTION_KEY`, `JWT_SECRET` | App-level secrets |
+| `AI_VERIFICATION_ENABLED`, `ANTHROPIC_API_KEY` | Optional Claude review |
+
+`deploy/env.example` is a template — copy it to `.env` for `docker compose`.
+
+### Rule files
+
+- `src/main/resources/formula-rules.yml` — dosing tables, herb/mushroom database, alert rules.
+- `src/main/resources/cancerqr-protocols.yml` — cancer-type × physician-domain protocol matrix used by the tumor board.
+
+Tune medical content here without touching Java code.
+
+### Database migrations
+
+Flyway runs on the `production` and `local-pg` profiles (`spring.flyway.enabled=true`, `ddl-auto=validate`). Migrations live in `src/main/resources/db/migration/V*.sql`.
+
+---
+
+## WhatsApp setup
+
+1. Create a Meta Business app and add the **WhatsApp** product.
+2. Generate a **System User Access Token** with `whatsapp_business_messaging` permission. Put it in `WHATSAPP_ACCESS_TOKEN`.
+3. Note the **Phone Number ID** (WhatsApp → API Setup) and put it in `WHATSAPP_PHONE_NUMBER_ID`.
+4. Pick any string for `WHATSAPP_VERIFY_TOKEN` — Meta will echo it back during the verification handshake.
+5. In WhatsApp → Configuration → Webhook:
+   - **Callback URL**: `https://<your-host>/api/webhook/whatsapp`
+   - **Verify Token**: same string as `WHATSAPP_VERIFY_TOKEN`
+   - Subscribe to the `messages` field.
+6. For trial-tier accounts, add tester phone numbers under WhatsApp → API Setup → Recipients.
+
+> Webhook signature verification (`X-Hub-Signature-256`) is currently disabled in `WhatsAppWebhookController` — every POST is accepted. To re-enable it, read the request body once as a raw `String`, deserialize manually with `ObjectMapper`, and HMAC-SHA256 against the App Secret. Do **not** declare two `@RequestBody` parameters on the same handler — the request body stream is non-rewindable.
+
+---
+
+## HTTP endpoints
+
+### WhatsApp webhook
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/webhook/whatsapp` | Meta verification handshake (`hub.verify_token`) |
+| `POST` | `/api/webhook/whatsapp` | Inbound messages and status callbacks |
+
+### Dashboard (Thymeleaf)
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/dashboard/login` | Login form |
+| `POST` | `/api/dashboard/login` | Submit credentials |
+| `GET` | `/api/dashboard` | Home (queues, recent intakes) |
+| `GET` | `/api/dashboard/patients` | Patient list |
+| `GET` | `/api/dashboard/patients/{id}` | Patient detail / review |
+| `GET` | `/api/dashboard/patients/add` | Referring-doctor add patient form |
+| `POST` | `/api/dashboard/patients/add` | Create patient on behalf of a referring doctor |
+| `GET` | `/api/dashboard/protocol` | Protocol viewer |
+| `GET` | `/api/dashboard/doctors` | Doctor management (admin) |
+
+### Health
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/actuator/health` | Liveness / readiness |
+| `GET` | `/api/actuator/info` | Build info |
+
+---
+
+## Conversation state machine
+
+```
+INITIAL
+  ↓
+AWAITING_CONSENT
+  ↓
+ASK_REFERRAL_CODE → ASK_CANCER_TYPE → ASK_AGE → ASK_WEIGHT
+  → ASK_PAIN_SCALE → ASK_DIAGNOSIS_DATE → ASK_PET_SCAN → ASK_BLOOD_REPORT
+  → PROCESSING → RESULT_SENT → COMPLETED
+                    │
+                    └─► EXPIRED  (after timeout)
+```
+
+`START` / `RESTART` from the user resets the conversation. Validation rules: age 0–120, weight 1–300 kg, pain 0–10, date format `YYYY-MM-DD`. All prompt strings are constants at the top of `ConversationService.java`.
+
+---
+
+## Data model
+
+| Entity | Notes |
+|---|---|
+| `Patient` | WhatsApp number is the unique business key. Tracks demographics, intake flags, `ConversationState`, consent, and `referringDoctor`. |
+| `Doctor` | Referring physicians and tumor-board members. |
+| `Report` | Uploaded medical document metadata + storage URI. |
+| `Analysis` | JSON-column suggestions from the formula engine, with formula version stamped for audit. |
+| `TumorBoardReview` | Per-patient case with eight per-domain sign-off slots. |
+| `FinalProtocol` | Consensus protocol produced after all domains approve. |
+| `AuditLog` | PHI-safe trail (IDs only, 28 action types). |
+
+---
+
+## Testing
+
+```bash
+./mvnw test                                        # all tests
+./mvnw test -Dtest=FormulaEngineTest               # one class
+./mvnw test -Dtest=FormulaEngineTest#testMildPainPatientAnalysis
+```
+
+JUnit 5, Mockito. Existing suites:
+- `FormulaEngineTest` — derived metrics, alerts, supportive care, disclaimers (nested test classes).
+- `ConversationServiceTest` — state-machine transitions and input validation.
+- `ReportDataExtractionServiceTest` — report parsing.
+
+---
+
+## Production deployment notes
+
+The reference deployment runs on AWS:
+- **EC2** — host running the Docker container, fronted by **nginx** terminating TLS.
+- **RDS PostgreSQL** — managed database (set `DB_HOST` to the RDS endpoint).
+- **S3** — bucket for uploaded reports.
+- **Elastic IP** — fixed IP for the EC2 instance, mapped to a DNS A record.
+
+`deploy/setup-ec2.sh` installs Docker + Compose on Amazon Linux 2023 / Ubuntu 22.04 and prints the next steps.
+
+Bring-up sketch:
+1. Create RDS Postgres + S3 bucket; allow the EC2 security group access to both.
+2. Allocate an Elastic IP and associate it with the EC2 instance.
+3. Run `deploy/setup-ec2.sh` on the instance.
+4. `git clone` this repo to `/opt/cancerqr`, fill `.env`, `docker compose up -d`.
+5. Front it with nginx + Let's Encrypt cert at your domain.
+6. Point Meta's webhook at `https://<your-domain>/api/webhook/whatsapp`.
+
+---
+
+## Project layout
+
+```
+src/main/java/com/oncology/intake/
+  config/      Spring configuration, WhatsApp / Storage / Security beans
+  controller/  WhatsApp webhook + Thymeleaf dashboard
+  dto/         WhatsApp + analysis DTOs
+  engine/      FormulaEngine
+  entity/      JPA entities (Patient, Doctor, Report, Analysis, ...)
+  exception/   Global exception handler
+  repository/  Spring Data JPA repositories
+  service/     ConversationService, PatientIntakeService, AnalysisService, ...
+
+src/main/resources/
+  application.yml                Profiles + config
+  formula-rules.yml              Dosing tables / herbs / alerts
+  cancerqr-protocols.yml         Cancer × domain protocol matrix
+  db/migration/                  Flyway migrations
+  templates/dashboard/           Thymeleaf views
+
+deploy/
+  setup-ec2.sh                   EC2 bootstrap
+  env.example                    Env var template
+
+Dockerfile / docker-compose.yml  Container build + bundled Postgres
+```
+
+---
+
+## License
+
+Internal project — license to be added.

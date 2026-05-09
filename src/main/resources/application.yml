@@ -47,7 +47,6 @@ whatsapp:
     phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:your-phone-number-id}
     access-token: ${WHATSAPP_ACCESS_TOKEN:your-access-token}
     verify-token: ${WHATSAPP_VERIFY_TOKEN:your-verify-token}
-    webhook-secret: ${WHATSAPP_WEBHOOK_SECRET:}
 
 # AWS S3 / MinIO Configuration for file storage
 storage:
