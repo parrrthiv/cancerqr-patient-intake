@@ -53,6 +53,10 @@ public class Doctor {
     @Convert(converter = EncryptedStringConverter.class)
     private String fullName;
 
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    private PhysicianDomain domain;
+
     @Column(length = 500)
     @Convert(converter = EncryptedStringConverter.class)
     private String email;
