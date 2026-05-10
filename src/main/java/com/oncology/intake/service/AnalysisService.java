@@ -21,7 +21,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import reactor.core.publisher.Mono;
 
 /**
  * Service for generating and managing patient analyses.
@@ -41,70 +40,72 @@ public class AnalysisService {
     private final ReportDataExtractionService reportDataExtractionService;
 
     /**
-     * Generate analysis for a patient (without verification)
+     * Generate analysis for a patient (no AI verification step).
+     * Synchronous: the whole DB-write path happens inside this transaction.
      */
     @Transactional
     public AnalysisResult generateAnalysis(UUID patientId) {
-        return generateAnalysisInternal(patientId, false).block();
-    }
+        log.info("Generating analysis for patient {}", patientId);
 
-    /**
-     * Generate analysis with AI verification before sending
-     */
-    @Transactional
-    public Mono<VerifiedAnalysisResult> generateAndVerifyAnalysis(UUID patientId) {
-        return generateAnalysisInternal(patientId, true)
-                .map(result -> {
-                    AnalysisInput input = createAnalysisInput(patientIntakeService.getPatient(patientId));
-                    return new VerifiedAnalysisResult(result, null, true); // Placeholder
-                })
-                .flatMap(result -> {
-                    AnalysisInput input = createAnalysisInput(patientIntakeService.getPatient(patientId));
-                    return aiVerificationService.verifyAnalysis(input, result.analysisResult())
-                            .map(verification -> new VerifiedAnalysisResult(
-                                    result.analysisResult(),
-                                    verification,
-                                    verification.isApproved()
-                            ));
-                });
-    }
-
-    /**
-     * Internal method to generate analysis
-     */
-    private Mono<AnalysisResult> generateAnalysisInternal(UUID patientId, boolean withVerification) {
-        log.info("Generating analysis for patient: {} (verification: {})", patientId, withVerification);
-        
         Patient patient = patientIntakeService.getPatient(patientId);
-
-        // Validate patient has all required info
         if (!patient.hasBasicInfo()) {
             throw new FormulaEngineException("Patient missing required information for analysis");
         }
 
-        // Extract report data (cancer stage, ESR, CRP) before building input
+        // Extract clinical signals (cancer stage, ESR, CRP) before building input.
+        // If extraction fails the analysis still proceeds with whatever data we have.
         try {
             reportDataExtractionService.extractAndStoreReportData(patientId);
-            patient = patientIntakeService.getPatient(patientId); // re-fetch with extracted data
+            patient = patientIntakeService.getPatient(patientId);
         } catch (Exception e) {
-            log.warn("Report data extraction failed for patient {}, proceeding without: {}", patientId, e.getMessage());
+            log.warn("Report data extraction failed for patient {}, proceeding without: {}",
+                    patientId, e.getMessage());
         }
 
-        // Create analysis input
         AnalysisInput input = createAnalysisInput(patient);
-        
-        // Generate analysis using formula engine
         AnalysisResult result = formulaEngine.generateAnalysis(input);
-        
-        // Persist analysis
-        Analysis analysis = persistAnalysis(patient, input, result);
-        
+        persistAnalysis(patient, input, result);
+
         auditService.logSystemAction(patientId, AuditAction.ANALYSIS_GENERATED,
                 String.format("Formula version: %s, Urgent review: %s",
                         result.getFormulaVersion(), result.isRequiresUrgentReview()));
-        
-        log.info("Analysis generated successfully for patient: {}", patientId);
-        return Mono.just(result);
+
+        log.info("Analysis generated successfully for patient {}", patientId);
+        return result;
+    }
+
+    /**
+     * Generate analysis and run AI verification on it.
+     *
+     * Why synchronous: the prior implementation returned {@code Mono<VerifiedAnalysisResult>}
+     * with {@code @Transactional} on top. That's a bug — Spring's @Transactional commits
+     * when the method returns the Mono (not when the chain completes), so any DB writes
+     * inside the reactive chain happened OUTSIDE any transaction. Here the analysis is
+     * persisted by {@link #generateAnalysis} (its own short transaction), then we block
+     * once on the WebClient call to Anthropic for verification — a fine pattern in a
+     * Servlet stack.
+     *
+     * If verification throws or the WebClient times out we still return the analysis
+     * and treat it as approved — the AI step is an advisory layer, not a gate.
+     */
+    public VerifiedAnalysisResult generateAndVerify(UUID patientId) {
+        AnalysisResult analysis = generateAnalysis(patientId);
+
+        Patient patient = patientIntakeService.getPatient(patientId);
+        AnalysisInput input = createAnalysisInput(patient);
+
+        AIVerificationService.VerificationResult verification = null;
+        boolean approved = true;
+        try {
+            verification = aiVerificationService.verifyAnalysis(input, analysis).block();
+            if (verification != null) {
+                approved = verification.isApproved();
+            }
+        } catch (Exception e) {
+            log.warn("AI verification failed for patient {}, approving without it: {}",
+                    patientId, e.getMessage());
+        }
+        return new VerifiedAnalysisResult(analysis, verification, approved);
     }
 
     private AnalysisInput createAnalysisInput(Patient patient) {

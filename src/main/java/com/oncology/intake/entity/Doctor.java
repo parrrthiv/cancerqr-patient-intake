@@ -1,5 +1,6 @@
 package com.oncology.intake.entity;
 
+import com.oncology.intake.security.EncryptedStringConverter;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -12,12 +13,27 @@ import java.util.UUID;
  * Doctor/User entity for Tumor Board members.
  * Represents one of the 8 physician domains.
  */
+/*
+ * Annotation choices (deliberate):
+ *   @Getter / @Setter         — JPA needs them; Lombok generates them.
+ *   @ToString(exclude = ...)  — NEVER include the password hash in toString.
+ *                               @Data would have, and one stray
+ *                               log.info("doctor: {}", d) would leak every
+ *                               BCrypt hash to the log stream.
+ *   @EqualsAndHashCode(of=id) — the JPA-correct identity. Lombok's default
+ *                               @Data hashes every field; that breaks Set
+ *                               membership for managed entities whose
+ *                               fields mutate after add().
+ */
 @Entity
 @Table(name = "doctors")
-@Data
+@Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@ToString(exclude = "password")
+@EqualsAndHashCode(of = "id")
 public class Doctor {
 
     @Id
@@ -27,20 +43,22 @@ public class Doctor {
     @Column(nullable = false, unique = true)
     private String username;
 
+    // Stored as `{noop}<plaintext>` (legacy rows) or `{bcrypt}<hash>` (new rows).
+    // Spring Security handles the encoding via DelegatingPasswordEncoder. NOT
+    // PHI-encrypted — BCrypt is its own one-way protection.
     @Column(nullable = false)
     private String password;
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 500)
+    @Convert(converter = EncryptedStringConverter.class)
     private String fullName;
 
-    @Column(nullable = false)
-    @Enumerated(EnumType.STRING)
-    private PhysicianDomain domain;
-
-    @Column
+    @Column(length = 500)
+    @Convert(converter = EncryptedStringConverter.class)
     private String email;
 
-    @Column
+    @Column(length = 500)
+    @Convert(converter = EncryptedStringConverter.class)
     private String phone;
 
     @Column(unique = true)

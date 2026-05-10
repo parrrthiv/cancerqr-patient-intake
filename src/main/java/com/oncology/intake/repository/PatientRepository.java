@@ -86,6 +86,15 @@ public interface PatientRepository extends JpaRepository<Patient, UUID> {
     List<Patient> findByReferringDoctorId(UUID doctorId);
 
     /**
+     * Find patients that have at least one TumorBoardReview row.
+     * This is the visibility set for the 8 tumor-board physician domains —
+     * see {@link com.oncology.intake.security.PatientAccessService}.
+     */
+    @Query("SELECT DISTINCT p FROM Patient p " +
+           "WHERE EXISTS (SELECT 1 FROM TumorBoardReview r WHERE r.patient = p)")
+    List<Patient> findAllInTumorBoard();
+
+    /**
      * Anonymize patient data (for GDPR/retention compliance)
      */
     @Modifying

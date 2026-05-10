@@ -61,7 +61,9 @@ public class ReportDataExtractionService {
                 String stage = extractCancerStage(text);
                 if (stage != null) {
                     patient.setCancerStage(stage);
-                    log.info("Extracted cancer stage '{}' for patient: {}", stage, patientId);
+                    // PHI-safe: log the fact, not the value.
+                    log.info("Extracted cancer stage for patient {}", patientId);
+                    log.trace("Cancer stage value '{}' for patient {}", stage, patientId);
                     break;
                 }
             } catch (Exception e) {
@@ -81,11 +83,14 @@ public class ReportDataExtractionService {
 
                 if (esr != null) {
                     patient.setEsrValue(esr);
-                    log.info("Extracted ESR {} mm/hr for patient: {}", esr, patientId);
+                    // PHI-safe: log the fact, not the lab value.
+                    log.info("Extracted ESR for patient {}", patientId);
+                    log.trace("ESR {} mm/hr for patient {}", esr, patientId);
                 }
                 if (crp != null) {
                     patient.setCrpValue(crp);
-                    log.info("Extracted CRP {} mg/L for patient: {}", crp, patientId);
+                    log.info("Extracted CRP for patient {}", patientId);
+                    log.trace("CRP {} mg/L for patient {}", crp, patientId);
                 }
 
                 if (esr != null || crp != null) break;
@@ -101,7 +106,9 @@ public class ReportDataExtractionService {
             patient.setEffectivePainScale(effectivePain);
 
             if (effectivePain > patient.getPainScale()) {
-                log.info("Pain scale adjusted from {} to {} based on inflammation markers for patient: {}",
+                // PHI-safe: log the fact, not the values.
+                log.info("Pain scale adjusted for patient {} based on inflammation markers", patientId);
+                log.trace("Pain scale: original={} effective={} patient={}",
                         patient.getPainScale(), effectivePain, patientId);
             }
         }

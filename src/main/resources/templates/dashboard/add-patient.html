@@ -81,6 +81,21 @@
                     </div>
                 </div>
 
+                <!-- Consent attestation -->
+                <div class="border-t pt-4">
+                    <label class="flex items-start space-x-3 cursor-pointer">
+                        <input type="checkbox" name="consentAttested" value="true" required
+                               class="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                        <span class="text-sm text-gray-700">
+                            <strong>I attest</strong> that I have obtained the patient's informed
+                            consent (verbal or written) to record their clinical details, share
+                            them with the tumor board, and contact them via WhatsApp.
+                            This attestation is logged in the audit trail with my doctor ID and
+                            the current timestamp.
+                        </span>
+                    </label>
+                </div>
+
                 <div class="flex justify-end space-x-4 pt-4">
                     <a th:href="@{/dashboard/patients}" class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
                         Cancel

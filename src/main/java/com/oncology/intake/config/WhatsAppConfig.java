@@ -29,6 +29,13 @@ public class WhatsAppConfig {
     private String verifyToken;
 
     /**
+     * App Secret used to verify {@code X-Hub-Signature-256} on inbound webhooks.
+     * If blank, signature verification is skipped — only sensible for local dev.
+     * In production, set {@code WHATSAPP_WEBHOOK_SECRET} to your Meta App Secret.
+     */
+    private String webhookSecret;
+
+    /**
      * Get the messages endpoint URL
      */
     public String getMessagesUrl() {

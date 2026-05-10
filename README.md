@@ -81,7 +81,7 @@ The repo ships a multi-stage `Dockerfile` and a `docker-compose.yml` that bundle
 
 ```bash
 cp deploy/env.example .env
-# fill in DB_PASSWORD, WhatsApp creds, S3 creds, ENCRYPTION_KEY, JWT_SECRET
+# fill in DB_PASSWORD, WhatsApp creds, S3 bucket / region (use IAM role on EC2)
 
 docker compose up -d --build
 docker compose logs -f app
@@ -99,8 +99,7 @@ docker run -d --name cancerqr -p 8080:8080 \
   -e STORAGE_TYPE=s3 -e S3_BUCKET_NAME=... -e AWS_REGION=us-east-1 \
   -e AWS_ACCESS_KEY=... -e AWS_SECRET_KEY=... \
   -e WHATSAPP_PHONE_NUMBER_ID=... -e WHATSAPP_ACCESS_TOKEN=... \
-  -e WHATSAPP_VERIFY_TOKEN=... \
-  -e ENCRYPTION_KEY=... -e JWT_SECRET=... \
+  -e WHATSAPP_VERIFY_TOKEN=... -e WHATSAPP_WEBHOOK_SECRET=... \
   cancerqr-app
 ```
 
@@ -122,8 +121,10 @@ Production profile expects these environment variables:
 |---|---|
 | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`, `DB_PASSWORD` | PostgreSQL connection |
 | `STORAGE_TYPE=s3`, `S3_BUCKET_NAME`, `AWS_REGION`, `AWS_ACCESS_KEY`, `AWS_SECRET_KEY` | S3 storage |
-| `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN` | WhatsApp Cloud API |
-| `ENCRYPTION_KEY`, `JWT_SECRET` | App-level secrets |
+| `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_WEBHOOK_SECRET` | WhatsApp Cloud API. `WEBHOOK_SECRET` is the Meta App Secret used to HMAC-verify inbound webhooks; leave empty in dev to skip the check, always set it in production. |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated list of dashboard origins (e.g. `https://testapi.cancerqr.com`). Required in production. |
+| `SESSION_COOKIE_SECURE` | Forced to `true` by the production profile; only override locally when debugging over plain HTTP. |
+| `PHI_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-256 key used to encrypt PHI columns (`patient.name`, `doctor.full_name`, `doctor.email`, `doctor.phone`) at rest. Generate with `openssl rand -base64 32`. **Required in production**; loss of this key = permanent loss of every encrypted PHI value. |
 | `AI_VERIFICATION_ENABLED`, `ANTHROPIC_API_KEY` | Optional Claude review |
 
 `deploy/env.example` is a template — copy it to `.env` for `docker compose`.
@@ -147,13 +148,14 @@ Flyway runs on the `production` and `local-pg` profiles (`spring.flyway.enabled=
 2. Generate a **System User Access Token** with `whatsapp_business_messaging` permission. Put it in `WHATSAPP_ACCESS_TOKEN`.
 3. Note the **Phone Number ID** (WhatsApp → API Setup) and put it in `WHATSAPP_PHONE_NUMBER_ID`.
 4. Pick any string for `WHATSAPP_VERIFY_TOKEN` — Meta will echo it back during the verification handshake.
-5. In WhatsApp → Configuration → Webhook:
+5. Copy your **App Secret** (Settings → Basic → App Secret) into `WHATSAPP_WEBHOOK_SECRET`. The webhook controller HMAC-verifies every inbound POST against this. Leave empty only in local dev; production must set it.
+6. In WhatsApp → Configuration → Webhook:
    - **Callback URL**: `https://<your-host>/api/webhook/whatsapp`
    - **Verify Token**: same string as `WHATSAPP_VERIFY_TOKEN`
    - Subscribe to the `messages` field.
-6. For trial-tier accounts, add tester phone numbers under WhatsApp → API Setup → Recipients.
+7. For trial-tier accounts, add tester phone numbers under WhatsApp → API Setup → Recipients.
 
-> Webhook signature verification (`X-Hub-Signature-256`) is currently disabled in `WhatsAppWebhookController` — every POST is accepted. To re-enable it, read the request body once as a raw `String`, deserialize manually with `ObjectMapper`, and HMAC-SHA256 against the App Secret. Do **not** declare two `@RequestBody` parameters on the same handler — the request body stream is non-rewindable.
+> The webhook controller reads the body once as a raw `String`, HMAC-SHA256s it against `WHATSAPP_WEBHOOK_SECRET`, and constant-time-compares to the `X-Hub-Signature-256` header. Counts of received / signature-failed / parse-failed / processing-failed events are exposed at `/api/actuator/metrics/webhook.received` (and similar names).
 
 ---
 
@@ -237,9 +239,11 @@ JUnit 5, Mockito. Existing suites:
 
 The reference deployment runs on AWS:
 - **EC2** — host running the Docker container, fronted by **nginx** terminating TLS.
-- **RDS PostgreSQL** — managed database (set `DB_HOST` to the RDS endpoint).
-- **S3** — bucket for uploaded reports.
+- **RDS PostgreSQL** — managed database (set `DB_HOST` to the RDS endpoint). Enable encryption-at-rest at instance creation time.
+- **S3** — bucket for uploaded reports. The app calls `PutObject` with `serverSideEncryption=AES256`; bucket policy should additionally deny `aws:SecureTransport=false` to require TLS in transit.
 - **Elastic IP** — fixed IP for the EC2 instance, mapped to a DNS A record.
+
+**Credentials**: attach an IAM instance role to the EC2 host with `s3:GetObject / PutObject / DeleteObject / HeadObject` on the bucket. Leave `AWS_ACCESS_KEY` / `AWS_SECRET_KEY` blank — the AWS SDK falls back to the EC2 metadata service automatically. Static keys leak through `docker inspect`, `ps`, and `.env` files on disk.
 
 `deploy/setup-ec2.sh` installs Docker + Compose on Amazon Linux 2023 / Ubuntu 22.04 and prints the next steps.
 

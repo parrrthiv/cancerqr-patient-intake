@@ -67,7 +67,7 @@ public class ConversationService {
             • Storage of your medical reports
             • Generation of initial assessment suggestions
             
-            Your data is encrypted and handled confidentially.
+            Your data is sent over an encrypted connection (HTTPS), stored on encrypted servers, and accessed only by authorised clinical staff.
             
             Reply *YES* to continue or *NO* to stop.""";
 

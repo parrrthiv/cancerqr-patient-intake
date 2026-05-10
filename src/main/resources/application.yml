@@ -15,16 +15,21 @@ spring:
 
   jpa:
     hibernate:
+      # The default profile is for local H2 dev only. Production uses validate +
+      # Flyway (see the "production" profile below). NEVER deploy to production
+      # without SPRING_PROFILES_ACTIVE=production.
       ddl-auto: update
     show-sql: false
     properties:
       hibernate:
         dialect: ${HIBERNATE_DIALECT:org.hibernate.dialect.H2Dialect}
-        format_sql: true
 
   h2:
     console:
-      enabled: ${H2_CONSOLE_ENABLED:true}
+      # Off by default — H2 console authenticates only with the in-memory sa/empty
+      # creds, bypassing Spring Security. Enable explicitly per-environment via
+      # H2_CONSOLE_ENABLED=true; never enable in production.
+      enabled: ${H2_CONSOLE_ENABLED:false}
       path: /h2-console
 
   flyway:
@@ -39,6 +44,14 @@ server:
   port: ${SERVER_PORT:8080}
   servlet:
     context-path: /api
+    session:
+      cookie:
+        # Disabled by default so local HTTP dev still works; production profile
+        # below overrides this to true. NEVER set this to false in production.
+        secure: ${SESSION_COOKIE_SECURE:false}
+        http-only: true
+        same-site: lax
+      timeout: 30m
 
 # WhatsApp Business Cloud API Configuration
 whatsapp:
@@ -47,6 +60,9 @@ whatsapp:
     phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:your-phone-number-id}
     access-token: ${WHATSAPP_ACCESS_TOKEN:your-access-token}
     verify-token: ${WHATSAPP_VERIFY_TOKEN:your-verify-token}
+    # Meta App Secret for HMAC verification of inbound webhook payloads.
+    # Leave empty in dev to skip the check; ALWAYS set in production.
+    webhook-secret: ${WHATSAPP_WEBHOOK_SECRET:}
 
 # AWS S3 / MinIO Configuration for file storage
 storage:
@@ -60,13 +76,14 @@ storage:
     secret-key: ${AWS_SECRET_KEY:}
     endpoint: ${S3_ENDPOINT:}  # For MinIO
 
-# Security Configuration
-security:
+# PHI column encryption.
+#  - In `production` profile, MUST be set or the app fails to start (see PhiEncryptor).
+#  - In any other profile, leave empty for plaintext PHI columns (dev convenience).
+#  - Generate with: openssl rand -base64 32
+#  - Loss of this key = permanent loss of every encrypted PHI value.
+phi:
   encryption:
-    key: ${ENCRYPTION_KEY:DefaultEncryptionKey123!}
-  jwt:
-    secret: ${JWT_SECRET:DefaultJwtSecretKey123!}
-    expiration: 86400000  # 24 hours
+    key: ${PHI_ENCRYPTION_KEY:}
 
 # Medicine Formula Engine Configuration
 formula:
@@ -103,6 +120,10 @@ app:
     - image/webp
     - application/pdf
   conversation-timeout-minutes: 60
+  cors:
+    # Comma-separated list of origins allowed to call the dashboard.
+    # NEVER use "*" with credentials. Override per-environment via env var.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8080}
 
 # AI Verification Settings (Claude API for analysis review)
 ai:
@@ -141,6 +162,20 @@ spring:
 
 storage:
   type: s3
+
+# Cache parsed Thymeleaf templates in production — they don't change between
+# request cycles and re-parsing every render is pure waste.
+spring.thymeleaf.cache: true
+
+server:
+  servlet:
+    session:
+      cookie:
+        # Force the session cookie to be HTTPS-only in production. nginx in front
+        # of the app must terminate TLS (which it does at testapi.cancerqr.com).
+        secure: true
+        http-only: true
+        same-site: lax
 
 logging:
   level:

@@ -167,11 +167,16 @@ public class StorageService {
     private StorageResult storeInS3(S3Client s3, byte[] content, String key,
                                    String contentType, String checksum) {
         try {
+            // Always request AES256 server-side encryption. This is independent of
+            // any bucket-level default — setting it on the request defends against
+            // a misconfigured bucket. For envelope encryption with KMS, switch to
+            // ServerSideEncryption.AWS_KMS and add .ssekmsKeyId(...).
             PutObjectRequest request = PutObjectRequest.builder()
                     .bucket(storageConfig.getS3().getBucketName())
                     .key(key)
                     .contentType(contentType)
                     .contentLength((long) content.length)
+                    .serverSideEncryption(ServerSideEncryption.AES256)
                     .build();
 
             s3.putObject(request, RequestBody.fromBytes(content));

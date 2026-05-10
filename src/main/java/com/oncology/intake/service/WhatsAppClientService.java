@@ -201,8 +201,8 @@ public class WhatsAppClientService {
                                 })
                 )
                 .bodyToMono(SendMessageResponse.class)
-                .doOnSuccess(resp -> log.info("Message sent to: {}", request.getTo()))
-                .doOnError(e -> log.error("Failed to send message to: {}", request.getTo(), e));
+                .doOnSuccess(resp -> log.info("Message sent to: {}", maskNumber(request.getTo())))
+                .doOnError(e -> log.error("Failed to send message to: {}", maskNumber(request.getTo()), e));
     }
 
     /**
@@ -233,6 +233,12 @@ public class WhatsAppClientService {
                 "Pain Scale",
                 options
         );
+    }
+
+    /** Mask a phone number for log output: keep first 4 + last 4, redact the middle. */
+    private static String maskNumber(String number) {
+        if (number == null || number.length() < 8) return "***";
+        return number.substring(0, 4) + "****" + number.substring(number.length() - 4);
     }
 
     // =============== Helper Records ===============

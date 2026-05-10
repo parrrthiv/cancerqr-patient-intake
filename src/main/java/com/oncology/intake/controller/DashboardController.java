@@ -2,34 +2,48 @@ package com.oncology.intake.controller;
 
 import com.oncology.intake.config.CancerQRProtocolConfig;
 import com.oncology.intake.entity.*;
+import com.oncology.intake.entity.AuditLog.AuditAction;
 import com.oncology.intake.entity.Doctor.PhysicianDomain;
-import com.oncology.intake.entity.Report;
 import com.oncology.intake.repository.*;
+import com.oncology.intake.security.DoctorPrincipal;
+import com.oncology.intake.security.PatientAccessService;
+import com.oncology.intake.service.AuditService;
+import com.oncology.intake.service.PatientIntakeService;
 import com.oncology.intake.service.ReportDataExtractionService;
 import com.oncology.intake.service.StorageService;
 import com.oncology.intake.service.TumorBoardService;
-import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
-import com.oncology.intake.service.PatientIntakeService;
-
 import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Controller for Tumor Board Dashboard.
- * Provides UI for doctors to review patient cases.
+ * Controller for the Tumor Board dashboard and admin/referring-doctor flows.
+ *
+ * Authentication is handled by Spring Security (see {@code SecurityConfig}).
+ * Spring guarantees that:
+ *  - GET/POST {@code /dashboard/login} are routed through the security filter, not this controller.
+ *  - GET {@code /dashboard/logout} is handled by Spring's logout filter.
+ *  - Every other {@code /dashboard/**} method runs only with a non-null
+ *    {@link DoctorPrincipal}, so methods do not need to re-check.
+ *
+ * Role-restricted routes (admin-only doctor management, referring-doctor-only
+ * "add patient") are enforced by the SecurityConfig request matchers, not by
+ * controller code. The role checks left in helpers are belt-and-braces.
  */
 @Controller
 @RequestMapping("/dashboard")
@@ -48,94 +62,48 @@ public class DashboardController {
     private final ReportDataExtractionService reportDataExtractionService;
     private final CancerQRProtocolConfig protocolConfig;
     private final PatientIntakeService patientIntakeService;
+    private final PasswordEncoder passwordEncoder;
+    private final AuditService auditService;
+    private final PatientAccessService patientAccessService;
 
     private static final String REFERRAL_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     /**
-     * Login page
+     * Login page. Spring Security handles the POST; this method only renders the GET.
+     * If the user is already logged in, redirect to dashboard home.
      */
     @GetMapping("/login")
-    public String loginPage(HttpSession session, Model model) {
-        if (session.getAttribute("doctorId") != null) {
+    public String loginPage(@AuthenticationPrincipal DoctorPrincipal principal, Model model) {
+        if (principal != null) {
             return "redirect:/dashboard";
         }
-        
-        // Get all doctors for login dropdown
-        List<Doctor> doctors = doctorRepository.findAll();
-        model.addAttribute("doctors", doctors);
-        model.addAttribute("domains", PhysicianDomain.values());
-        
         return "dashboard/login";
-    }
-
-    /**
-     * Process login
-     */
-    @PostMapping("/login")
-    public String login(@RequestParam String username, 
-                        @RequestParam String password,
-                        HttpSession session,
-                        RedirectAttributes redirectAttributes) {
-        
-        Optional<Doctor> doctorOpt = doctorRepository.findByUsername(username);
-        
-        if (doctorOpt.isPresent() && doctorOpt.get().getPassword().equals(password) && doctorOpt.get().getActive()) {
-            Doctor doctor = doctorOpt.get();
-            session.setAttribute("doctorId", doctor.getId());
-            session.setAttribute("doctorName", doctor.getFullName());
-            session.setAttribute("doctorDomain", doctor.getDomain());
-            
-            log.info("Doctor logged in: {} ({})", doctor.getFullName(), doctor.getDomain());
-            return "redirect:/dashboard";
-        }
-        
-        redirectAttributes.addFlashAttribute("error", "Invalid credentials");
-        return "redirect:/dashboard/login";
-    }
-
-    /**
-     * Logout
-     */
-    @GetMapping("/logout")
-    public String logout(HttpSession session) {
-        session.invalidate();
-        return "redirect:/dashboard/login";
     }
 
     /**
      * Main dashboard
      */
     @GetMapping
-    public String dashboard(HttpSession session, Model model) {
-        UUID doctorId = (UUID) session.getAttribute("doctorId");
-        if (doctorId == null) {
-            return "redirect:/dashboard/login";
-        }
-
-        Doctor doctor = doctorRepository.findById(doctorId).orElse(null);
+    public String dashboard(@AuthenticationPrincipal DoctorPrincipal principal, Model model) {
+        Doctor doctor = doctorRepository.findById(principal.getId()).orElse(null);
         if (doctor == null) {
-            session.invalidate();
-            return "redirect:/dashboard/login";
+            // Account deleted while session was alive — force re-login
+            return "redirect:/dashboard/logout";
         }
 
-        // Referring doctors get a different dashboard view
         if (doctor.getDomain() == PhysicianDomain.REFERRING_DOCTOR) {
-            List<Patient> myPatients = patientRepository.findByReferringDoctorId(doctorId);
+            List<Patient> myPatients = patientRepository.findByReferringDoctorId(doctor.getId());
             model.addAttribute("doctor", doctor);
             model.addAttribute("myPatients", myPatients);
             model.addAttribute("patientCount", myPatients.size());
             return "dashboard/index";
         }
 
-        // Get pending reviews for this doctor's domain
         List<TumorBoardReview> pendingReviews = tumorBoardService
                 .getUnassignedReviewsForDomain(doctor.getDomain());
+        List<TumorBoardReview> myReviews = reviewRepository.findByDoctorId(doctor.getId());
 
-        // Get reviews assigned to this doctor
-        List<TumorBoardReview> myReviews = reviewRepository.findByDoctorId(doctorId);
-
-        // Stats
         long pendingCount = myReviews.stream()
                 .filter(r -> r.getStatus() == TumorBoardReview.ReviewStatus.PENDING
                           || r.getStatus() == TumorBoardReview.ReviewStatus.IN_PROGRESS)
@@ -159,25 +127,24 @@ public class DashboardController {
      */
     @GetMapping("/patient/{patientId}")
     public String viewPatient(@PathVariable UUID patientId,
-                              HttpSession session,
+                              @AuthenticationPrincipal DoctorPrincipal principal,
                               Model model) {
-        UUID doctorId = (UUID) session.getAttribute("doctorId");
-        if (doctorId == null) {
-            return "redirect:/dashboard/login";
-        }
-
-        Doctor doctor = doctorRepository.findById(doctorId).orElse(null);
+        Doctor doctor = doctorRepository.findById(principal.getId()).orElse(null);
         Patient patient = patientRepository.findById(patientId).orElse(null);
 
         if (doctor == null || patient == null) {
             return "redirect:/dashboard";
         }
 
-        // Referring doctors can only view their own patients (read-only)
+        // Authorization: not "is logged in" but "is allowed to view THIS patient".
+        if (!patientAccessService.canViewPatient(doctor, patient)) {
+            log.warn("Doctor id={} domain={} denied access to patient id={}",
+                    doctor.getId(), doctor.getDomain(), patientId);
+            return "redirect:/dashboard";
+        }
+
         if (doctor.getDomain() == PhysicianDomain.REFERRING_DOCTOR) {
-            if (patient.getReferringDoctor() == null || !patient.getReferringDoctor().getId().equals(doctorId)) {
-                return "redirect:/dashboard";
-            }
+            // Referring doctors get the read-only view (no protocol selection forms).
             model.addAttribute("doctor", doctor);
             model.addAttribute("patient", patient);
             model.addAttribute("readOnly", true);
@@ -191,8 +158,9 @@ public class DashboardController {
             return "dashboard/patient-review";
         }
 
-        // Extract report data if not already done
-        if (patient.getCancerStage() == null && patient.getEsrValue() == null && patient.getCrpValue() == null) {
+        if (patient.getCancerStage() == null
+                && patient.getEsrValue() == null
+                && patient.getCrpValue() == null) {
             try {
                 reportDataExtractionService.extractAndStoreReportData(patientId);
                 patient = patientRepository.findById(patientId).orElse(patient);
@@ -201,21 +169,19 @@ public class DashboardController {
             }
         }
 
-        // Get or create review for this doctor's domain
         TumorBoardReview review = reviewRepository
                 .findByPatientIdAndPhysicianDomain(patientId, doctor.getDomain())
                 .orElse(null);
 
-        // Get review status for all domains
         Map<String, Object> reviewStatus = tumorBoardService.getReviewStatusForPatient(patientId);
 
-        // Get protocol defaults for this cancer type
-        String cancerTypeId = patient.getCancerType() != null ? 
-                patient.getCancerType().toUpperCase().replace(" ", "_") : "BREAST_CANCER";
-        
+        String cancerTypeId = patient.getCancerType() != null
+                ? patient.getCancerType().toUpperCase().replace(" ", "_")
+                : "BREAST_CANCER";
+
         CancerQRProtocolConfig.CancerProtocol cancerProtocol = null;
         CancerQRProtocolConfig.PhysicianProtocol physicianProtocol = null;
-        
+
         if (protocolConfig.getCancerProtocols() != null) {
             cancerProtocol = protocolConfig.getCancerProtocols().get(cancerTypeId);
             if (cancerProtocol != null && cancerProtocol.getPhysicians() != null) {
@@ -223,7 +189,6 @@ public class DashboardController {
             }
         }
 
-        // Extract saved data from review if exists
         List<String> savedEcs = null;
         String savedDiet = null;
         String savedFasting = null;
@@ -231,7 +196,7 @@ public class DashboardController {
         List<String> savedHerbs = null;
         List<String> savedDrugs = null;
         String savedSpecialty = null;
-        
+
         if (review != null && review.getSelectedProtocols() != null) {
             Map<String, Object> protocols = review.getSelectedProtocols();
             savedEcs = getListFromMap(protocols, "ecsDefault");
@@ -240,8 +205,7 @@ public class DashboardController {
             savedMushrooms = getListFromMap(protocols, "mushrooms");
             savedHerbs = getListFromMap(protocols, "herbs");
             savedDrugs = getListFromMap(protocols, "repurposedDrugs");
-            
-            // Handle specialty - could be list or string
+
             Object specialtyObj = protocols.get("specialty");
             if (specialtyObj instanceof List) {
                 savedSpecialty = String.join(", ", (List<String>) specialtyObj);
@@ -250,10 +214,7 @@ public class DashboardController {
             }
         }
 
-        // Get reports for this patient
         List<Report> reports = reportRepository.findByPatientId(patientId);
-
-        // Get latest analysis for this patient
         Analysis latestAnalysis = analysisRepository
                 .findFirstByPatientIdOrderByCreatedAtDesc(patientId).orElse(null);
 
@@ -266,8 +227,7 @@ public class DashboardController {
         model.addAttribute("cancerProtocol", cancerProtocol);
         model.addAttribute("physicianProtocol", physicianProtocol);
         model.addAttribute("masterLists", protocolConfig.getMasterLists());
-        
-        // Add saved data
+
         model.addAttribute("savedEcs", savedEcs);
         model.addAttribute("savedDiet", savedDiet);
         model.addAttribute("savedFasting", savedFasting);
@@ -278,7 +238,7 @@ public class DashboardController {
 
         return "dashboard/patient-review";
     }
-    
+
     @SuppressWarnings("unchecked")
     private List<String> getListFromMap(Map<String, Object> map, String key) {
         Object value = map.get(key);
@@ -303,30 +263,36 @@ public class DashboardController {
                                @RequestParam(required = false) List<String> specialty,
                                @RequestParam(required = false) String notes,
                                @RequestParam(required = false) String recommendations,
-                               HttpSession session,
+                               @AuthenticationPrincipal DoctorPrincipal principal,
                                RedirectAttributes redirectAttributes) {
-        
-        UUID doctorId = (UUID) session.getAttribute("doctorId");
-        if (doctorId == null) {
-            return "redirect:/dashboard/login";
-        }
+        Doctor doctor = doctorRepository.findById(principal.getId()).orElse(null);
+        Patient patient = patientRepository.findById(patientId).orElse(null);
 
-        Doctor doctor = doctorRepository.findById(doctorId).orElse(null);
-        if (doctor == null) {
+        // Authorization: must be allowed to view this patient AND must have a
+        // review row for this doctor's domain. (Was: 500 with "Review not found"
+        // when those weren't true — exposed a stack trace and surprised the user.)
+        if (doctor == null || patient == null
+                || !patientAccessService.canViewPatient(doctor, patient)) {
+            log.warn("Doctor id={} denied submitReview for patient id={}",
+                    principal.getId(), patientId);
             return "redirect:/dashboard";
         }
 
-        // Find or create review
-        TumorBoardReview review = reviewRepository
-                .findByPatientIdAndPhysicianDomain(patientId, doctor.getDomain())
-                .orElseThrow(() -> new RuntimeException("Review not found"));
+        Optional<TumorBoardReview> reviewOpt = reviewRepository
+                .findByPatientIdAndPhysicianDomain(patientId, doctor.getDomain());
+        if (reviewOpt.isEmpty()) {
+            log.warn("Doctor id={} domain={} has no review row for patient id={}",
+                    doctor.getId(), doctor.getDomain(), patientId);
+            redirectAttributes.addFlashAttribute("error",
+                    "No review task exists for your domain on this patient.");
+            return "redirect:/dashboard";
+        }
+        TumorBoardReview review = reviewOpt.get();
 
-        // Assign doctor if not already
         if (review.getDoctor() == null) {
             review.setDoctor(doctor);
         }
 
-        // Build protocols map
         Map<String, Object> protocols = new HashMap<>();
         protocols.put("ecsDefault", ecsDefault != null ? ecsDefault : List.of());
         protocols.put("ecsOptional", ecsOptional != null ? ecsOptional : List.of());
@@ -345,69 +311,99 @@ public class DashboardController {
     }
 
     /**
-     * View/download a report file
+     * View/download a report file.
+     *
+     * Forces {@code attachment} disposition + {@code application/octet-stream} +
+     * {@code X-Content-Type-Options: nosniff} so a malicious upload
+     * cannot render as HTML/SVG inside the dashboard origin.
      */
     @GetMapping("/reports/{reportId}/view")
     @ResponseBody
     public ResponseEntity<byte[]> viewReport(@PathVariable UUID reportId,
-                                             HttpSession session) {
-        UUID doctorId = (UUID) session.getAttribute("doctorId");
-        if (doctorId == null) {
-            return ResponseEntity.status(401).build();
-        }
-
+                                             @AuthenticationPrincipal DoctorPrincipal principal) {
         Report report = reportRepository.findById(reportId).orElse(null);
         if (report == null) {
             return ResponseEntity.notFound().build();
         }
 
+        Doctor doctor = doctorRepository.findById(principal.getId()).orElse(null);
+        if (doctor == null || !patientAccessService.canViewReport(doctor, report)) {
+            log.warn("Doctor id={} denied access to report id={}",
+                    principal.getId(), reportId);
+            // 404 not 403 — don't confirm the report exists to a caller without access.
+            return ResponseEntity.notFound().build();
+        }
+
         byte[] fileBytes = storageService.retrieveFile(report.getStorageLocation());
 
+        String safeFileName = report.getFileName() == null
+                ? "report.bin"
+                : report.getFileName().replaceAll("[\r\n\"\\\\]", "_");
+
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + report.getFileName() + "\"")
-                .contentType(MediaType.parseMediaType(report.getContentType()))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + safeFileName + "\"")
+                .header("X-Content-Type-Options", "nosniff")
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .contentLength(fileBytes.length)
                 .body(fileBytes);
     }
 
     /**
-     * View all patients (admin view)
+     * View all patients (admin / non-referring view; referring doctors see only their own).
      */
     @GetMapping("/patients")
-    public String allPatients(HttpSession session, Model model) {
-        UUID doctorId = (UUID) session.getAttribute("doctorId");
-        if (doctorId == null) {
-            return "redirect:/dashboard/login";
-        }
-
-        Doctor doctor = doctorRepository.findById(doctorId).orElse(null);
+    public String allPatients(@AuthenticationPrincipal DoctorPrincipal principal, Model model) {
+        Doctor doctor = doctorRepository.findById(principal.getId()).orElse(null);
         if (doctor == null) {
-            session.invalidate();
-            return "redirect:/dashboard/login";
+            return "redirect:/dashboard/logout";
         }
 
-        // Referring doctors only see their own patients
+        // Visibility rules mirror PatientAccessService.canViewPatient(...):
+        //   ADMIN              → every patient
+        //   REFERRING_DOCTOR   → only patients they referred
+        //   any other domain   → only patients in the tumor board queue
         List<Patient> patients;
-        if (doctor.getDomain() == PhysicianDomain.REFERRING_DOCTOR) {
-            patients = patientRepository.findByReferringDoctorId(doctorId);
-        } else {
-            patients = patientRepository.findAll();
+        switch (doctor.getDomain()) {
+            case ADMIN -> patients = patientRepository.findAll();
+            case REFERRING_DOCTOR -> patients = patientRepository.findByReferringDoctorId(doctor.getId());
+            default -> patients = patientRepository.findAllInTumorBoard();
         }
 
         model.addAttribute("doctor", doctor);
-        
-        // Add review status for each patient
-        List<Map<String, Object>> patientData = new ArrayList<>();
+
+        // Avoid N+1: fetch all reviews and protocols for the visible patients in
+        // two queries, then assemble per-patient view models in memory. Previously
+        // each patient triggered 2 extra queries (review list + final protocol).
+        List<UUID> patientIds = patients.stream().map(Patient::getId).toList();
+
+        Map<UUID, List<TumorBoardReview>> reviewsByPatient =
+                patientIds.isEmpty()
+                        ? Map.of()
+                        : reviewRepository.findByPatientIdIn(patientIds).stream()
+                                .collect(Collectors.groupingBy(r -> r.getPatient().getId()));
+
+        Map<UUID, FinalProtocol> protocolByPatient =
+                patientIds.isEmpty()
+                        ? Map.of()
+                        : protocolRepository.findByPatientIdIn(patientIds).stream()
+                                .collect(Collectors.toMap(
+                                        p -> p.getPatient().getId(),
+                                        p -> p,
+                                        (a, b) -> a));
+
+        List<Map<String, Object>> patientData = new ArrayList<>(patients.size());
         for (Patient patient : patients) {
             Map<String, Object> data = new HashMap<>();
             data.put("patient", patient);
-            data.put("reviewStatus", tumorBoardService.getReviewStatusForPatient(patient.getId()));
-            
-            // Check for final protocol
-            Optional<FinalProtocol> protocol = protocolRepository.findByPatientId(patient.getId());
-            data.put("hasProtocol", protocol.isPresent());
-            data.put("protocolStatus", protocol.map(FinalProtocol::getStatus).orElse(null));
-            
+
+            List<TumorBoardReview> reviews = reviewsByPatient.getOrDefault(patient.getId(), List.of());
+            data.put("reviewStatus", TumorBoardService.buildReviewStatus(reviews));
+
+            FinalProtocol protocol = protocolByPatient.get(patient.getId());
+            data.put("hasProtocol", protocol != null);
+            data.put("protocolStatus", protocol != null ? protocol.getStatus() : null);
+
             patientData.add(data);
         }
 
@@ -420,14 +416,18 @@ public class DashboardController {
      */
     @GetMapping("/protocol/{patientId}")
     public String viewProtocol(@PathVariable UUID patientId,
-                               HttpSession session,
+                               @AuthenticationPrincipal DoctorPrincipal principal,
                                Model model) {
-        UUID doctorId = (UUID) session.getAttribute("doctorId");
-        if (doctorId == null) {
-            return "redirect:/dashboard/login";
+        Doctor doctor = doctorRepository.findById(principal.getId()).orElse(null);
+        Patient patient = patientRepository.findById(patientId).orElse(null);
+
+        if (doctor == null || patient == null
+                || !patientAccessService.canViewPatient(doctor, patient)) {
+            log.warn("Doctor id={} denied access to protocol for patient id={}",
+                    principal.getId(), patientId);
+            return "redirect:/dashboard";
         }
 
-        Patient patient = patientRepository.findById(patientId).orElse(null);
         FinalProtocol protocol = protocolRepository.findByPatientId(patientId).orElse(null);
         List<TumorBoardReview> reviews = reviewRepository.findByPatientId(patientId);
 
@@ -439,10 +439,11 @@ public class DashboardController {
     }
 
     // ── Add Patient (Referring Doctors Only) ─────────────────────────────
+    // Role enforced by SecurityConfig; helpers keep belt-and-braces checks.
 
     @GetMapping("/patients/add")
-    public String addPatientForm(HttpSession session, Model model) {
-        Doctor doctor = getReferringDoctorOrNull(session);
+    public String addPatientForm(@AuthenticationPrincipal DoctorPrincipal principal, Model model) {
+        Doctor doctor = requireReferringDoctor(principal);
         if (doctor == null) {
             return "redirect:/dashboard";
         }
@@ -459,19 +460,29 @@ public class DashboardController {
                              @RequestParam(required = false) BigDecimal weightKg,
                              @RequestParam(required = false) Integer painScale,
                              @RequestParam(required = false) String diagnosisDate,
-                             HttpSession session,
+                             @RequestParam(name = "consentAttested", required = false) Boolean consentAttested,
+                             @AuthenticationPrincipal DoctorPrincipal principal,
                              RedirectAttributes redirectAttributes) {
-        Doctor doctor = getReferringDoctorOrNull(session);
+        Doctor doctor = requireReferringDoctor(principal);
         if (doctor == null) {
             return "redirect:/dashboard";
         }
 
-        // Check if patient already exists
-        if (patientRepository.existsByWhatsappNumber(whatsappNumber)) {
-            redirectAttributes.addFlashAttribute("error", "A patient with this WhatsApp number already exists.");
+        // Consent attestation: the form has a required checkbox, but trust nothing
+        // from the client. If the doctor didn't tick it, refuse to create the record.
+        if (!Boolean.TRUE.equals(consentAttested)) {
+            redirectAttributes.addFlashAttribute("error",
+                    "You must attest that you have obtained the patient's informed consent.");
             return "redirect:/dashboard/patients/add";
         }
 
+        if (patientRepository.existsByWhatsappNumber(whatsappNumber)) {
+            redirectAttributes.addFlashAttribute("error",
+                    "A patient with this WhatsApp number already exists.");
+            return "redirect:/dashboard/patients/add";
+        }
+
+        LocalDateTime now = LocalDateTime.now();
         Patient patient = Patient.builder()
                 .name(name)
                 .whatsappNumber(whatsappNumber)
@@ -479,44 +490,51 @@ public class DashboardController {
                 .age(age)
                 .weightKg(weightKg)
                 .painScale(painScale)
-                .diagnosisDate(diagnosisDate != null && !diagnosisDate.isBlank() ? LocalDate.parse(diagnosisDate) : null)
+                .diagnosisDate(diagnosisDate != null && !diagnosisDate.isBlank()
+                        ? LocalDate.parse(diagnosisDate) : null)
                 .consentGiven(true)
+                .consentTimestamp(now)
                 .conversationState(Patient.ConversationState.COMPLETED)
                 .intakeCompleted(true)
                 .referringDoctor(doctor)
                 .build();
         patient = patientRepository.save(patient);
 
-        // Create tumor board review tasks
+        // Audit trail: record both that the patient was created and that consent
+        // was attested by this referring doctor (vs. obtained directly via WhatsApp).
+        auditService.logDoctorAction(doctor.getId(), patient.getId(),
+                AuditAction.PATIENT_CREATED,
+                "Created via referring-doctor add-patient form");
+        auditService.logDoctorAction(doctor.getId(), patient.getId(),
+                AuditAction.CONSENT_GIVEN,
+                "Verbal/written consent attested by referring doctor (not WhatsApp)");
+
         tumorBoardService.createReviewTasksForPatient(patient.getId());
 
-        log.info("Referring doctor {} added patient: {}", doctor.getFullName(), name);
-        redirectAttributes.addFlashAttribute("success", "Patient '" + name + "' added successfully");
+        log.info("Referring doctor id={} created patient id={}", doctor.getId(), patient.getId());
+        redirectAttributes.addFlashAttribute("success",
+                "Patient '" + name + "' added successfully");
         return "redirect:/dashboard/patients";
     }
 
-    private Doctor getReferringDoctorOrNull(HttpSession session) {
-        UUID doctorId = (UUID) session.getAttribute("doctorId");
-        if (doctorId == null) return null;
-        Doctor doctor = doctorRepository.findById(doctorId).orElse(null);
-        if (doctor == null || doctor.getDomain() != PhysicianDomain.REFERRING_DOCTOR) return null;
-        return doctor;
+    private Doctor requireReferringDoctor(DoctorPrincipal principal) {
+        if (principal == null || principal.getDomain() != PhysicianDomain.REFERRING_DOCTOR) {
+            return null;
+        }
+        return doctorRepository.findById(principal.getId()).orElse(null);
     }
 
     // ── Doctor Management (Admin Only) ──────────────────────────────────
+    // Role enforced by SecurityConfig; helpers keep belt-and-braces checks.
 
-    /**
-     * List all doctors + inline add form
-     */
     @GetMapping("/doctors")
-    public String listDoctors(HttpSession session, Model model) {
-        Doctor admin = getAdminOrNull(session);
+    public String listDoctors(@AuthenticationPrincipal DoctorPrincipal principal, Model model) {
+        Doctor admin = requireAdmin(principal);
         if (admin == null) {
             return "redirect:/dashboard";
         }
 
         List<Doctor> doctors = doctorRepository.findAll();
-
         long activeCount = doctors.stream().filter(Doctor::getActive).count();
         Map<String, Long> byDomain = doctors.stream()
                 .collect(Collectors.groupingBy(d -> d.getDomain().getDisplayName(), Collectors.counting()));
@@ -532,9 +550,6 @@ public class DashboardController {
         return "dashboard/doctors";
     }
 
-    /**
-     * Create a new doctor
-     */
     @PostMapping("/doctors")
     public String createDoctor(@RequestParam String fullName,
                                @RequestParam String username,
@@ -542,22 +557,23 @@ public class DashboardController {
                                @RequestParam PhysicianDomain domain,
                                @RequestParam(required = false) String email,
                                @RequestParam(required = false) String phone,
-                               HttpSession session,
+                               @AuthenticationPrincipal DoctorPrincipal principal,
                                RedirectAttributes redirectAttributes) {
-        Doctor admin = getAdminOrNull(session);
+        Doctor admin = requireAdmin(principal);
         if (admin == null) {
             return "redirect:/dashboard";
         }
 
         if (doctorRepository.existsByUsername(username)) {
-            redirectAttributes.addFlashAttribute("error", "Username '" + username + "' already exists");
+            redirectAttributes.addFlashAttribute("error",
+                    "Username '" + username + "' already exists");
             return "redirect:/dashboard/doctors";
         }
 
         Doctor.DoctorBuilder builder = Doctor.builder()
                 .fullName(fullName)
                 .username(username)
-                .password(password)
+                .password(passwordEncoder.encode(password))
                 .domain(domain)
                 .email(email)
                 .phone(phone)
@@ -570,19 +586,17 @@ public class DashboardController {
         Doctor doctor = builder.build();
         doctorRepository.save(doctor);
 
-        log.info("Admin {} created doctor: {} ({})", admin.getFullName(), fullName, domain);
-        redirectAttributes.addFlashAttribute("success", "Doctor '" + fullName + "' created successfully");
+        log.info("Admin id={} created doctor id={} domain={}", admin.getId(), doctor.getId(), domain);
+        redirectAttributes.addFlashAttribute("success",
+                "Doctor '" + fullName + "' created successfully");
         return "redirect:/dashboard/doctors";
     }
 
-    /**
-     * Show edit form for a doctor
-     */
     @GetMapping("/doctors/{id}/edit")
     public String editDoctorForm(@PathVariable UUID id,
-                                 HttpSession session,
+                                 @AuthenticationPrincipal DoctorPrincipal principal,
                                  Model model) {
-        Doctor admin = getAdminOrNull(session);
+        Doctor admin = requireAdmin(principal);
         if (admin == null) {
             return "redirect:/dashboard";
         }
@@ -608,9 +622,6 @@ public class DashboardController {
         return "dashboard/doctors";
     }
 
-    /**
-     * Update a doctor
-     */
     @PostMapping("/doctors/{id}")
     public String updateDoctor(@PathVariable UUID id,
                                @RequestParam String fullName,
@@ -619,9 +630,9 @@ public class DashboardController {
                                @RequestParam PhysicianDomain domain,
                                @RequestParam(required = false) String email,
                                @RequestParam(required = false) String phone,
-                               HttpSession session,
+                               @AuthenticationPrincipal DoctorPrincipal principal,
                                RedirectAttributes redirectAttributes) {
-        Doctor admin = getAdminOrNull(session);
+        Doctor admin = requireAdmin(principal);
         if (admin == null) {
             return "redirect:/dashboard";
         }
@@ -632,35 +643,33 @@ public class DashboardController {
             return "redirect:/dashboard/doctors";
         }
 
-        // Check username uniqueness if changed
         if (!doctor.getUsername().equals(username) && doctorRepository.existsByUsername(username)) {
-            redirectAttributes.addFlashAttribute("error", "Username '" + username + "' already exists");
+            redirectAttributes.addFlashAttribute("error",
+                    "Username '" + username + "' already exists");
             return "redirect:/dashboard/doctors/" + id + "/edit";
         }
 
         doctor.setFullName(fullName);
         doctor.setUsername(username);
         if (password != null && !password.isBlank()) {
-            doctor.setPassword(password);
+            doctor.setPassword(passwordEncoder.encode(password));
         }
         doctor.setDomain(domain);
         doctor.setEmail(email);
         doctor.setPhone(phone);
         doctorRepository.save(doctor);
 
-        log.info("Admin {} updated doctor: {} ({})", admin.getFullName(), fullName, domain);
-        redirectAttributes.addFlashAttribute("success", "Doctor '" + fullName + "' updated successfully");
+        log.info("Admin id={} updated doctor id={} domain={}", admin.getId(), doctor.getId(), domain);
+        redirectAttributes.addFlashAttribute("success",
+                "Doctor '" + fullName + "' updated successfully");
         return "redirect:/dashboard/doctors";
     }
 
-    /**
-     * Toggle doctor active/inactive
-     */
     @PostMapping("/doctors/{id}/toggle")
     public String toggleDoctor(@PathVariable UUID id,
-                               HttpSession session,
+                               @AuthenticationPrincipal DoctorPrincipal principal,
                                RedirectAttributes redirectAttributes) {
-        Doctor admin = getAdminOrNull(session);
+        Doctor admin = requireAdmin(principal);
         if (admin == null) {
             return "redirect:/dashboard";
         }
@@ -675,17 +684,17 @@ public class DashboardController {
         doctorRepository.save(doctor);
 
         String status = doctor.getActive() ? "activated" : "deactivated";
-        log.info("Admin {} {} doctor: {}", admin.getFullName(), status, doctor.getFullName());
-        redirectAttributes.addFlashAttribute("success", "Doctor '" + doctor.getFullName() + "' " + status);
+        log.info("Admin id={} {} doctor id={}", admin.getId(), status, doctor.getId());
+        redirectAttributes.addFlashAttribute("success",
+                "Doctor '" + doctor.getFullName() + "' " + status);
         return "redirect:/dashboard/doctors";
     }
 
-    private Doctor getAdminOrNull(HttpSession session) {
-        UUID doctorId = (UUID) session.getAttribute("doctorId");
-        if (doctorId == null) return null;
-        Doctor doctor = doctorRepository.findById(doctorId).orElse(null);
-        if (doctor == null || doctor.getDomain() != PhysicianDomain.ADMIN) return null;
-        return doctor;
+    private Doctor requireAdmin(DoctorPrincipal principal) {
+        if (principal == null || principal.getDomain() != PhysicianDomain.ADMIN) {
+            return null;
+        }
+        return doctorRepository.findById(principal.getId()).orElse(null);
     }
 
     private String generateUniqueReferralCode() {
@@ -703,19 +712,30 @@ public class DashboardController {
     }
 
     /**
-     * Approve final protocol
+     * Approve final protocol — admin only.
+     *
+     * Belt-and-braces with SecurityConfig's path-level role check; either alone
+     * would suffice, but having both means a future SecurityConfig regression
+     * cannot accidentally open this up.
      */
     @PostMapping("/protocol/{protocolId}/approve")
     public String approveProtocol(@PathVariable UUID protocolId,
-                                  HttpSession session,
+                                  @AuthenticationPrincipal DoctorPrincipal principal,
                                   RedirectAttributes redirectAttributes) {
-        UUID doctorId = (UUID) session.getAttribute("doctorId");
-        if (doctorId == null) {
-            return "redirect:/dashboard/login";
+        if (principal == null || principal.getDomain() != PhysicianDomain.ADMIN) {
+            log.warn("Non-admin doctor id={} domain={} attempted to approve protocol id={}",
+                    principal == null ? null : principal.getId(),
+                    principal == null ? null : principal.getDomain(),
+                    protocolId);
+            redirectAttributes.addFlashAttribute("error",
+                    "Only administrators can approve final protocols.");
+            return "redirect:/dashboard";
         }
 
         FinalProtocol protocol = tumorBoardService.approveFinalProtocol(protocolId);
-        
+
+        log.info("Admin id={} approved protocol id={} for patient id={}",
+                principal.getId(), protocolId, protocol.getPatient().getId());
         redirectAttributes.addFlashAttribute("success", "Protocol approved!");
         return "redirect:/dashboard/protocol/" + protocol.getPatient().getId();
     }

@@ -9,8 +9,10 @@ import com.oncology.intake.repository.ReportRepository;
 import com.oncology.intake.service.AnalysisService;
 import com.oncology.intake.service.StorageService;
 import com.oncology.intake.service.TumorBoardService;
+import com.oncology.intake.util.MediaValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -21,14 +23,21 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 /**
- * Admin endpoint for testing the full patient intake flow via curl.
- * NOT for production use.
+ * Test-only endpoint for exercising the full patient intake pipeline via curl.
+ *
+ * Gated to {@code @Profile("dev")} — the bean is not registered in production,
+ * local-pg, or any default profile. Adding a new profile? It does not get this
+ * controller unless the profile literal {@code dev} is active.
  */
 @RestController
 @RequestMapping("/admin/test")
 @RequiredArgsConstructor
 @Slf4j
+@Profile("dev")
 public class AdminTestController {
+
+    /** Same cap PatientIntakeService uses for the WhatsApp upload path. */
+    private static final long MAX_UPLOAD_BYTES = 25L * 1024L * 1024L;
 
     private final PatientRepository patientRepository;
     private final ReportRepository reportRepository;
@@ -86,14 +95,16 @@ public class AdminTestController {
 
             patient = patientRepository.save(patient);
             UUID patientId = patient.getId();
-            log.info("Created test patient: {} ({})", name, patientId);
+            log.info("Created test patient id={}", patientId);
             result.put("patientId", patientId);
             result.put("name", name);
 
-            // 2. Store PET scan
+            // 2. Store PET scan (validate before writing to S3)
+            byte[] petBytes = petScan.getBytes();
+            MediaValidator.validate(petBytes, petScan.getContentType(), MAX_UPLOAD_BYTES);
             StorageService.StorageResult petResult = storageService.storeFile(
-                    petScan.getBytes(), petScan.getOriginalFilename(),
-                    "application/pdf", patientId);
+                    petBytes, petScan.getOriginalFilename(),
+                    petScan.getContentType(), patientId);
 
             Report petReport = Report.builder()
                     .patient(patient)
@@ -101,7 +112,7 @@ public class AdminTestController {
                     .storageLocation(petResult.storageKey())
                     .fileName(petScan.getOriginalFilename())
                     .originalFileName(petScan.getOriginalFilename())
-                    .contentType("application/pdf")
+                    .contentType(petScan.getContentType())
                     .fileSizeBytes(petResult.sizeBytes())
                     .checksum(petResult.checksum())
                     .processed(false)
@@ -111,10 +122,12 @@ public class AdminTestController {
             log.info("Stored PET scan report: {}", petResult.storageKey());
             result.put("petScanStorageKey", petResult.storageKey());
 
-            // 3. Store blood report
+            // 3. Store blood report (validate before writing to S3)
+            byte[] bloodBytes = bloodReport.getBytes();
+            MediaValidator.validate(bloodBytes, bloodReport.getContentType(), MAX_UPLOAD_BYTES);
             StorageService.StorageResult bloodResult = storageService.storeFile(
-                    bloodReport.getBytes(), bloodReport.getOriginalFilename(),
-                    "application/pdf", patientId);
+                    bloodBytes, bloodReport.getOriginalFilename(),
+                    bloodReport.getContentType(), patientId);
 
             Report bloodRpt = Report.builder()
                     .patient(patient)
@@ -122,7 +135,7 @@ public class AdminTestController {
                     .storageLocation(bloodResult.storageKey())
                     .fileName(bloodReport.getOriginalFilename())
                     .originalFileName(bloodReport.getOriginalFilename())
-                    .contentType("application/pdf")
+                    .contentType(bloodReport.getContentType())
                     .fileSizeBytes(bloodResult.sizeBytes())
                     .checksum(bloodResult.checksum())
                     .processed(false)
@@ -135,7 +148,7 @@ public class AdminTestController {
 
             // 4. Generate analysis with AI verification (triggers report data extraction internally)
             try {
-                var verifiedResult = analysisService.generateAndVerifyAnalysis(patientId).block();
+                var verifiedResult = analysisService.generateAndVerify(patientId);
                 result.put("analysisGenerated", true);
                 result.put("assessmentSummary", verifiedResult.analysisResult().getAssessmentSummary());
                 result.put("urgentReview", verifiedResult.analysisResult().isRequiresUrgentReview());

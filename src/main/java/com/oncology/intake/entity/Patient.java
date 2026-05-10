@@ -1,5 +1,6 @@
 package com.oncology.intake.entity;
 
+import com.oncology.intake.security.EncryptedStringConverter;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -22,7 +23,8 @@ import java.util.UUID;
 @Entity
 @Table(name = "patients", indexes = {
     @Index(name = "idx_whatsapp_number", columnList = "whatsapp_number", unique = true),
-    @Index(name = "idx_created_at", columnList = "created_at")
+    @Index(name = "idx_created_at", columnList = "created_at"),
+    @Index(name = "idx_patients_referring_doctor_id", columnList = "referring_doctor_id")
 })
 @Getter
 @Setter
@@ -38,7 +40,11 @@ public class Patient {
     @Column(name = "whatsapp_number", nullable = false, unique = true, length = 20)
     private String whatsappNumber;
 
-    @Column(name = "name", length = 100)
+    // Stored AES-256-GCM encrypted via {@link EncryptedStringConverter}. Column
+    // is widened to 500 chars to fit ciphertext + base64 + prefix overhead for
+    // names up to ~250 plaintext chars. Legacy plaintext rows decrypt to themselves.
+    @Column(name = "name", length = 500)
+    @Convert(converter = EncryptedStringConverter.class)
     private String name;
 
     @Column(name = "cancer_type", length = 100)

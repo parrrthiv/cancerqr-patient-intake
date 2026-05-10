@@ -29,9 +29,12 @@
                         <p class="text-sm font-semibold text-gray-800" th:text="${doctor.fullName}">Dr. Name</p>
                         <p class="text-xs text-gray-500" th:text="${doctor.domain.displayName}">Department</p>
                     </div>
-                    <a th:href="@{/dashboard/logout}" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm">
-                        Logout
-                    </a>
+                    <!-- Logout: POST form (Spring Security requires POST when CSRF is enabled). -->
+                    <form th:action="@{/dashboard/logout}" method="post" class="inline">
+                        <button type="submit" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm">
+                            Logout
+                        </button>
+                    </form>
                 </div>
             </div>
         </div>

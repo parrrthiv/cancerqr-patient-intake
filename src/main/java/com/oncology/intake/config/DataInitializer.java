@@ -12,13 +12,22 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
- * Initializes demo data for testing.
- * Creates 8 doctors (one per domain) and sample patients.
+ * Initializes demo doctors and sample patients for local development.
+ *
+ * Activates ONLY for the {@code dev} profile so that {@code local-pg}, CI runs,
+ * and any production-adjacent environment never get the seeded {@code admin/admin123}
+ * account. To run with seeds locally: {@code -Dspring-boot.run.profiles=dev}.
+ *
+ * Passwords are hashed via the application's {@link PasswordEncoder}
+ * (DelegatingPasswordEncoder → bcrypt by default). The plaintext credentials
+ * shown on the login page are still {@code <username>/demo123} or
+ * {@code admin/admin123} — what's stored is the hash.
  */
 @Configuration
 @RequiredArgsConstructor
@@ -28,77 +37,74 @@ public class DataInitializer {
     private final DoctorRepository doctorRepository;
     private final PatientRepository patientRepository;
     private final TumorBoardService tumorBoardService;
+    private final PasswordEncoder passwordEncoder;
 
     @Bean
-    @Profile("!production")
+    @Profile("dev")
     public CommandLineRunner initDemoData() {
         return args -> {
-            log.info("Initializing demo data...");
+            log.info("Initializing demo data (dev profile)...");
 
-            // Create 8 doctors (one per domain)
-            createDoctorIfNotExists("medical", "demo123", "Dr. Arun Sharma", PhysicianDomain.MEDICAL_ONCOLOGY);
-            createDoctorIfNotExists("surgical", "demo123", "Dr. Priya Nair", PhysicianDomain.SURGICAL_ONCOLOGY);
-            createDoctorIfNotExists("radiation", "demo123", "Dr. Vikram Patel", PhysicianDomain.RADIATION_ONCOLOGY);
-            createDoctorIfNotExists("precision", "demo123", "Dr. Sanjay Gupta", PhysicianDomain.PRECISION_ONCOLOGY);
-            createDoctorIfNotExists("palliative", "demo123", "Dr. Meera Krishnan", PhysicianDomain.PALLIATIVE_CARE);
-            createDoctorIfNotExists("ayurveda", "demo123", "Dr. Ravi Varma", PhysicianDomain.AYURVEDA_INTEGRATIVE);
-            createDoctorIfNotExists("functional", "demo123", "Dr. Anita Desai", PhysicianDomain.FUNCTIONAL_MEDICINE);
-            createDoctorIfNotExists("dietician", "demo123", "Dr. Sunita Rao", PhysicianDomain.DIETICIAN_NUTRITION);
-
-            // Create admin user
-            createDoctorIfNotExists("admin", "admin123", "System Admin", PhysicianDomain.ADMIN);
-
-            // Create sample referring doctor
+            createDoctorIfNotExists("medical",    "demo123",  "Dr. Arun Sharma",     PhysicianDomain.MEDICAL_ONCOLOGY);
+            createDoctorIfNotExists("surgical",   "demo123",  "Dr. Priya Nair",      PhysicianDomain.SURGICAL_ONCOLOGY);
+            createDoctorIfNotExists("radiation",  "demo123",  "Dr. Vikram Patel",    PhysicianDomain.RADIATION_ONCOLOGY);
+            createDoctorIfNotExists("precision",  "demo123",  "Dr. Sanjay Gupta",    PhysicianDomain.PRECISION_ONCOLOGY);
+            createDoctorIfNotExists("palliative", "demo123",  "Dr. Meera Krishnan",  PhysicianDomain.PALLIATIVE_CARE);
+            createDoctorIfNotExists("ayurveda",   "demo123",  "Dr. Ravi Varma",      PhysicianDomain.AYURVEDA_INTEGRATIVE);
+            createDoctorIfNotExists("functional", "demo123",  "Dr. Anita Desai",     PhysicianDomain.FUNCTIONAL_MEDICINE);
+            createDoctorIfNotExists("dietician",  "demo123",  "Dr. Sunita Rao",      PhysicianDomain.DIETICIAN_NUTRITION);
+            createDoctorIfNotExists("admin",      "admin123", "System Admin",        PhysicianDomain.ADMIN);
             createReferringDoctorIfNotExists("referrer", "demo123", "Dr. Kavita Reddy", "REF-TEST");
 
             log.info("Created 8 tumor board doctors + 1 admin + 1 referring doctor");
 
-            // Create sample patients for testing
             createSamplePatients();
 
-            log.info("Demo data initialization complete!");
+            log.info("Demo data initialization complete.");
         };
     }
 
-    private void createDoctorIfNotExists(String username, String password, String fullName, PhysicianDomain domain) {
-        if (!doctorRepository.existsByUsername(username)) {
-            Doctor doctor = Doctor.builder()
-                    .username(username)
-                    .password(password) // In production, use BCrypt!
-                    .fullName(fullName)
-                    .domain(domain)
-                    .email(username + "@cancerqr.in")
-                    .active(true)
-                    .build();
-            doctorRepository.save(doctor);
-            log.debug("Created doctor: {} ({})", fullName, domain);
+    private void createDoctorIfNotExists(String username, String plaintextPassword,
+                                         String fullName, PhysicianDomain domain) {
+        if (doctorRepository.existsByUsername(username)) {
+            return;
         }
+        Doctor doctor = Doctor.builder()
+                .username(username)
+                .password(passwordEncoder.encode(plaintextPassword))
+                .fullName(fullName)
+                .domain(domain)
+                .email(username + "@cancerqr.in")
+                .active(true)
+                .build();
+        doctorRepository.save(doctor);
+        log.debug("Created doctor: id={} domain={}", doctor.getId(), domain);
     }
 
-    private void createReferringDoctorIfNotExists(String username, String password, String fullName, String referralCode) {
-        if (!doctorRepository.existsByUsername(username)) {
-            Doctor doctor = Doctor.builder()
-                    .username(username)
-                    .password(password)
-                    .fullName(fullName)
-                    .domain(PhysicianDomain.REFERRING_DOCTOR)
-                    .email(username + "@cancerqr.in")
-                    .referralCode(referralCode)
-                    .active(true)
-                    .build();
-            doctorRepository.save(doctor);
-            log.debug("Created referring doctor: {} (code: {})", fullName, referralCode);
+    private void createReferringDoctorIfNotExists(String username, String plaintextPassword,
+                                                   String fullName, String referralCode) {
+        if (doctorRepository.existsByUsername(username)) {
+            return;
         }
+        Doctor doctor = Doctor.builder()
+                .username(username)
+                .password(passwordEncoder.encode(plaintextPassword))
+                .fullName(fullName)
+                .domain(PhysicianDomain.REFERRING_DOCTOR)
+                .email(username + "@cancerqr.in")
+                .referralCode(referralCode)
+                .active(true)
+                .build();
+        doctorRepository.save(doctor);
+        log.debug("Created referring doctor: id={} code={}", doctor.getId(), referralCode);
     }
 
     private void createSamplePatients() {
-        // Only create if no patients exist
         if (patientRepository.count() > 0) {
             log.info("Patients already exist, skipping sample data");
             return;
         }
 
-        // Sample Patient 1: Breast Cancer
         Patient patient1 = Patient.builder()
                 .whatsappNumber("+919876543210")
                 .name("Rajesh Kumar")
@@ -115,7 +121,6 @@ public class DataInitializer {
         patient1 = patientRepository.save(patient1);
         tumorBoardService.createReviewTasksForPatient(patient1.getId());
 
-        // Sample Patient 2: Lung Cancer
         Patient patient2 = Patient.builder()
                 .whatsappNumber("+919876543211")
                 .name("Priya Menon")
@@ -132,7 +137,6 @@ public class DataInitializer {
         patient2 = patientRepository.save(patient2);
         tumorBoardService.createReviewTasksForPatient(patient2.getId());
 
-        // Sample Patient 3: Colorectal Cancer
         Patient patient3 = Patient.builder()
                 .whatsappNumber("+919876543212")
                 .name("Suresh Iyer")

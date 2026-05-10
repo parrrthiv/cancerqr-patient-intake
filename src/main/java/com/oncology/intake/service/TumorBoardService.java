@@ -69,15 +69,13 @@ public class TumorBoardService {
     }
 
     /**
-     * Get all reviews for a doctor's domain (unassigned)
+     * Get all reviews for a doctor's domain that are unassigned and pending.
+     * Uses a single indexed SQL query (was previously {@code findAll() + stream filter},
+     * which streamed the whole reviews table into memory on every dashboard load).
      */
     public List<TumorBoardReview> getUnassignedReviewsForDomain(PhysicianDomain domain) {
-        // Get all pending reviews for this domain that don't have a doctor assigned
-        return reviewRepository.findAll().stream()
-                .filter(r -> r.getPhysicianDomain() == domain)
-                .filter(r -> r.getDoctor() == null)
-                .filter(r -> r.getStatus() == ReviewStatus.PENDING)
-                .toList();
+        return reviewRepository.findByPhysicianDomainAndDoctorIsNullAndStatus(
+                domain, ReviewStatus.PENDING);
     }
 
     /**
@@ -284,11 +282,19 @@ public class TumorBoardService {
     }
 
     /**
-     * Get review status summary for a patient
+     * Get review status summary for a single patient. Issues one DB query.
+     * For batched (multi-patient) views, prefer fetching the reviews once and
+     * calling {@link #buildReviewStatus(List)} per patient — avoids N+1.
      */
     public Map<String, Object> getReviewStatusForPatient(UUID patientId) {
-        List<TumorBoardReview> reviews = reviewRepository.findByPatientId(patientId);
+        return buildReviewStatus(reviewRepository.findByPatientId(patientId));
+    }
 
+    /**
+     * Pure function: compute the review-status summary from an in-memory
+     * list of reviews. No DB access, safe to call repeatedly.
+     */
+    public static Map<String, Object> buildReviewStatus(List<TumorBoardReview> reviews) {
         Map<String, Object> status = new HashMap<>();
         status.put("totalRequired", REQUIRED_REVIEWS);
         status.put("completed", reviews.stream().filter(TumorBoardReview::isCompleted).count());

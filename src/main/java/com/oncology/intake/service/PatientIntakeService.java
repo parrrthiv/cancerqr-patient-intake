@@ -9,8 +9,10 @@ import com.oncology.intake.entity.Report.ReportType;
 import com.oncology.intake.exception.IntakeExceptions.PatientNotFoundException;
 import com.oncology.intake.repository.PatientRepository;
 import com.oncology.intake.repository.ReportRepository;
+import com.oncology.intake.util.MediaValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +35,10 @@ public class PatientIntakeService {
     private final ReportRepository reportRepository;
     private final StorageService storageService;
     private final AuditService auditService;
+
+    /** Hard cap on uploaded medical reports, in megabytes. Wired from {@code app.max-upload-size-mb}. */
+    @Value("${app.max-upload-size-mb:25}")
+    private long maxUploadSizeMb;
 
     /**
      * Find or create a patient by WhatsApp number
@@ -182,13 +188,18 @@ public class PatientIntakeService {
      * Store a medical report
      */
     @Transactional
-    public Report storeReport(UUID patientId, ReportType reportType, 
-                               byte[] content, String fileName, 
+    public Report storeReport(UUID patientId, ReportType reportType,
+                               byte[] content, String fileName,
                                String contentType, String whatsappMediaId) {
         Patient patient = getPatient(patientId);
-        
+
+        // Validate BEFORE storing: rejects empty / oversized / disallowed MIME /
+        // declared-vs-actual content type mismatch. WhatsApp forwards whatever
+        // content type the sender claimed; never trust it without this check.
+        MediaValidator.validate(content, contentType, maxUploadSizeMb * 1024L * 1024L);
+
         // Store file in storage service
-        StorageService.StorageResult storageResult = 
+        StorageService.StorageResult storageResult =
                 storageService.storeFile(content, fileName, contentType, patientId);
         
         // Create report record
