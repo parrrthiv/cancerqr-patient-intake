@@ -16,7 +16,8 @@ import java.util.UUID;
 @Table(name = "reports", indexes = {
     @Index(name = "idx_patient_id", columnList = "patient_id"),
     @Index(name = "idx_report_type", columnList = "report_type"),
-    @Index(name = "idx_uploaded_at", columnList = "uploaded_at")
+    @Index(name = "idx_uploaded_at", columnList = "uploaded_at"),
+    @Index(name = "idx_phi_review_status", columnList = "phi_review_status")
 })
 @Getter
 @Setter
@@ -68,6 +69,35 @@ public class Report {
 
     @Column(name = "processing_notes", columnDefinition = "TEXT")
     private String processingNotes;
+
+    // PR 13 — PHI redaction workflow (stage 1: human review).
+    // Lab reports / scans frequently contain patient names, MRNs, hospital
+    // addresses in their headers/footers. New uploads default to PENDING; an
+    // admin must explicitly mark each file APPROVED (PHI-free) or
+    // REDACTION_NEEDED before the file is considered safe for board reviewers
+    // to open. Today the workflow is fully manual; later PRs may add automated
+    // detection (Textract + Comprehend Medical) to pre-fill the decision.
+    @Enumerated(EnumType.STRING)
+    @Column(name = "phi_review_status", nullable = false, length = 30)
+    @Builder.Default
+    private PhiReviewStatus phiReviewStatus = PhiReviewStatus.PENDING;
+
+    @Column(name = "phi_reviewed_by_doctor_id")
+    private UUID phiReviewedByDoctorId;
+
+    @Column(name = "phi_reviewed_at")
+    private LocalDateTime phiReviewedAt;
+
+    public enum PhiReviewStatus {
+        /** Newly uploaded — admin must review before reviewers can open the file. */
+        PENDING,
+        /** Admin confirmed no PHI is visible in the file body. */
+        APPROVED,
+        /** Admin flagged the file for redaction; original is held back from reviewers. */
+        REDACTION_NEEDED,
+        /** A redacted replacement has been uploaded; safe to serve. */
+        REDACTED
+    }
 
     /**
      * Types of medical reports supported

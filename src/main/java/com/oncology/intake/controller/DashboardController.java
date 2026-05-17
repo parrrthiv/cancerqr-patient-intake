@@ -767,4 +767,60 @@ public class DashboardController {
         redirectAttributes.addFlashAttribute("success", "Protocol approved!");
         return "redirect:/dashboard/protocol/" + protocol.getPatient().getId();
     }
+
+    // ── PHI Review Queue (Admin Only) ───────────────────────────────────
+    // PR 13 — Stage 1 of the redaction workflow. Admin reviews every uploaded
+    // report and confirms it's free of identifying header/footer info before
+    // it can be opened by tumor-board reviewers without risking PHI exposure.
+
+    @GetMapping("/reports/phi-review")
+    public String phiReviewQueue(@AuthenticationPrincipal DoctorPrincipal principal, Model model) {
+        Doctor admin = requireAdmin(principal);
+        if (admin == null) {
+            return "redirect:/dashboard";
+        }
+        model.addAttribute("admin", admin);
+        model.addAttribute("pendingReports",
+                reportRepository.findByPhiReviewStatusOrderByUploadedAtAsc(
+                        Report.PhiReviewStatus.PENDING));
+        return "dashboard/phi-review";
+    }
+
+    @PostMapping("/reports/{reportId}/phi-review")
+    public String submitPhiReview(@PathVariable UUID reportId,
+                                  @RequestParam Report.PhiReviewStatus decision,
+                                  @AuthenticationPrincipal DoctorPrincipal principal,
+                                  RedirectAttributes redirectAttributes) {
+        Doctor admin = requireAdmin(principal);
+        if (admin == null) {
+            return "redirect:/dashboard";
+        }
+        if (decision != Report.PhiReviewStatus.APPROVED
+                && decision != Report.PhiReviewStatus.REDACTION_NEEDED) {
+            redirectAttributes.addFlashAttribute("error",
+                    "Decision must be APPROVED or REDACTION_NEEDED.");
+            return "redirect:/dashboard/reports/phi-review";
+        }
+
+        Report report = reportRepository.findById(reportId).orElse(null);
+        if (report == null) {
+            redirectAttributes.addFlashAttribute("error", "Report not found.");
+            return "redirect:/dashboard/reports/phi-review";
+        }
+
+        report.setPhiReviewStatus(decision);
+        report.setPhiReviewedByDoctorId(admin.getId());
+        report.setPhiReviewedAt(LocalDateTime.now());
+        reportRepository.save(report);
+
+        auditService.logDoctorAction(admin.getId(),
+                report.getPatient() != null ? report.getPatient().getId() : null,
+                AuditLog.AuditAction.REPORT_DOWNLOADED,  // closest existing action; ideally REPORT_PHI_REVIEWED — add to enum later
+                "PHI review decision: " + decision + " on report " + reportId);
+
+        log.info("Admin id={} marked report id={} as {}", admin.getId(), reportId, decision);
+        redirectAttributes.addFlashAttribute("success",
+                "Report marked " + decision + ".");
+        return "redirect:/dashboard/reports/phi-review";
+    }
 }

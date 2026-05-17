@@ -1,6 +1,7 @@
 package com.oncology.intake.repository;
 
 import com.oncology.intake.entity.Report;
+import com.oncology.intake.entity.Report.PhiReviewStatus;
 import com.oncology.intake.entity.Report.ReportType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -42,6 +43,12 @@ public interface ReportRepository extends JpaRepository<Report, UUID> {
      * Find unprocessed reports
      */
     List<Report> findByProcessedFalse();
+
+    /**
+     * Find reports awaiting / by a specific PHI review status. Used by the
+     * admin redaction queue at /dashboard/reports/phi-review (PR 13).
+     */
+    List<Report> findByPhiReviewStatusOrderByUploadedAtAsc(PhiReviewStatus status);
 
     /**
      * Count reports by type

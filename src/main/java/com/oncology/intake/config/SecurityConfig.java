@@ -97,6 +97,8 @@ public class SecurityConfig {
                     .hasRole("ADMIN")
                 .requestMatchers("/admin/phi/**")
                     .hasRole("ADMIN")
+                .requestMatchers("/dashboard/reports/phi-review", "/dashboard/reports/*/phi-review")
+                    .hasRole("ADMIN")
                 .requestMatchers("/dashboard/patients/add")
                     .hasRole("REFERRING_DOCTOR")
 
