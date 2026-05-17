@@ -91,7 +91,15 @@ storage:
 #  - Two different keys, never the same value.
 phi:
   encryption:
+    # v1 key under its original name (back-compat). Equivalent to phi.encryption.key.v1.
     key: ${PHI_ENCRYPTION_KEY:}
+    # Per-version keys for rotation. Highest configured version is current (writes use it).
+    # Reads use whichever key matches the {enc:v<N>} prefix on the stored value.
+    # Add v2/v3/... here as rotation progresses; remove old versions after a sweep
+    # confirms no rows reference them.
+    key.v1: ${PHI_ENCRYPTION_KEY_V1:}
+    key.v2: ${PHI_ENCRYPTION_KEY_V2:}
+    key.v3: ${PHI_ENCRYPTION_KEY_V3:}
   hmac:
     key: ${PHI_HMAC_KEY:}
 
