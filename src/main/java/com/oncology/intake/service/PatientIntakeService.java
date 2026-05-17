@@ -37,6 +37,7 @@ public class PatientIntakeService {
     private final StorageService storageService;
     private final AuditService auditService;
     private final WhatsAppNumberHasher whatsAppNumberHasher;
+    private final ReportDataExtractionAsyncRunner reportExtractionRunner;
 
     /** Hard cap on uploaded medical reports, in megabytes. Wired from {@code app.max-upload-size-mb}. */
     @Value("${app.max-upload-size-mb:25}")
@@ -239,8 +240,14 @@ public class PatientIntakeService {
         
         auditService.logPatientAction(patientId, AuditAction.REPORT_UPLOADED,
                 String.format("Report type: %s, size: %d bytes", reportType, content.length));
-        
+
         log.info("Stored {} report for patient {}", reportType, patientId);
+
+        // Kick off async extraction so the request thread isn't blocked by
+        // PDFBox parsing. If extraction fails, the dashboard view will
+        // retrigger it lazily; see DashboardController.viewPatient.
+        reportExtractionRunner.runForPatient(patientId);
+
         return savedReport;
     }
 

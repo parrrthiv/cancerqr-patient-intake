@@ -10,7 +10,7 @@ import com.oncology.intake.security.PatientAccessService;
 import com.oncology.intake.security.WhatsAppNumberHasher;
 import com.oncology.intake.service.AuditService;
 import com.oncology.intake.service.PatientIntakeService;
-import com.oncology.intake.service.ReportDataExtractionService;
+import com.oncology.intake.service.ReportDataExtractionAsyncRunner;
 import com.oncology.intake.service.StorageService;
 import com.oncology.intake.service.TumorBoardService;
 import lombok.RequiredArgsConstructor;
@@ -60,7 +60,7 @@ public class DashboardController {
     private final FinalProtocolRepository protocolRepository;
     private final TumorBoardService tumorBoardService;
     private final StorageService storageService;
-    private final ReportDataExtractionService reportDataExtractionService;
+    private final ReportDataExtractionAsyncRunner reportExtractionRunner;
     private final CancerQRProtocolConfig protocolConfig;
     private final PatientIntakeService patientIntakeService;
     private final PasswordEncoder passwordEncoder;
@@ -160,15 +160,14 @@ public class DashboardController {
             return "dashboard/patient-review";
         }
 
+        // Fire-and-forget: if extraction never ran (or failed) for this patient,
+        // kick it off now. PDFBox parsing is slow; running it inline on the
+        // request thread froze the dashboard for any patient whose extraction
+        // hadn't completed. Doctor may need to refresh once for values to appear.
         if (patient.getCancerStage() == null
                 && patient.getEsrValue() == null
                 && patient.getCrpValue() == null) {
-            try {
-                reportDataExtractionService.extractAndStoreReportData(patientId);
-                patient = patientRepository.findById(patientId).orElse(patient);
-            } catch (Exception e) {
-                log.warn("Report data extraction failed for patient {}: {}", patientId, e.getMessage());
-            }
+            reportExtractionRunner.runForPatient(patientId);
         }
 
         TumorBoardReview review = reviewRepository
