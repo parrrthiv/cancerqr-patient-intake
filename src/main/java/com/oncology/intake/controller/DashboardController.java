@@ -353,24 +353,40 @@ public class DashboardController {
 
     /**
      * View all patients (admin / non-referring view; referring doctors see only their own).
+     *
+     * <p>Paginated to cap memory + render time. Defaults: page=0, size=50. Override via
+     * query params {@code ?page=N&size=M}. {@code size} is hard-capped at 200 to prevent
+     * abusive requests.
      */
     @GetMapping("/patients")
-    public String allPatients(@AuthenticationPrincipal DoctorPrincipal principal, Model model) {
+    public String allPatients(@AuthenticationPrincipal DoctorPrincipal principal,
+                              @RequestParam(defaultValue = "0") int page,
+                              @RequestParam(defaultValue = "50") int size,
+                              Model model) {
         Doctor doctor = doctorRepository.findById(principal.getId()).orElse(null);
         if (doctor == null) {
             return "redirect:/dashboard/logout";
         }
 
+        // Defensive caps: reject obvious abuse without erroring out.
+        if (page < 0) page = 0;
+        if (size <= 0 || size > 200) size = 50;
+        org.springframework.data.domain.Pageable pageable =
+                org.springframework.data.domain.PageRequest.of(page, size,
+                        org.springframework.data.domain.Sort.by("createdAt").descending());
+
         // Visibility rules mirror PatientAccessService.canViewPatient(...):
         //   ADMIN              → every patient
         //   REFERRING_DOCTOR   → only patients they referred
         //   any other domain   → only patients in the tumor board queue
-        List<Patient> patients;
+        org.springframework.data.domain.Page<Patient> patientPage;
         switch (doctor.getDomain()) {
-            case ADMIN -> patients = patientRepository.findAll();
-            case REFERRING_DOCTOR -> patients = patientRepository.findByReferringDoctorId(doctor.getId());
-            default -> patients = patientRepository.findAllInTumorBoard();
+            case ADMIN -> patientPage = patientRepository.findAll(pageable);
+            case REFERRING_DOCTOR -> patientPage =
+                    patientRepository.findByReferringDoctorId(doctor.getId(), pageable);
+            default -> patientPage = patientRepository.findAllInTumorBoard(pageable);
         }
+        List<Patient> patients = patientPage.getContent();
 
         model.addAttribute("doctor", doctor);
 
@@ -410,6 +426,11 @@ public class DashboardController {
         }
 
         model.addAttribute("patientData", patientData);
+        // Pagination metadata for the template (optional to render — list still works without it).
+        model.addAttribute("currentPage", patientPage.getNumber());
+        model.addAttribute("totalPages", patientPage.getTotalPages());
+        model.addAttribute("totalElements", patientPage.getTotalElements());
+        model.addAttribute("pageSize", patientPage.getSize());
         return "dashboard/patients";
     }
 

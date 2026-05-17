@@ -2,6 +2,8 @@ package com.oncology.intake.repository;
 
 import com.oncology.intake.entity.Patient;
 import com.oncology.intake.entity.Patient.ConversationState;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -91,6 +93,9 @@ public interface PatientRepository extends JpaRepository<Patient, UUID> {
      */
     List<Patient> findByReferringDoctorId(UUID doctorId);
 
+    /** Paginated variant for the dashboard list view. */
+    Page<Patient> findByReferringDoctorId(UUID doctorId, Pageable pageable);
+
     /**
      * Find patients that have at least one TumorBoardReview row.
      * This is the visibility set for the 8 tumor-board physician domains —
@@ -99,6 +104,13 @@ public interface PatientRepository extends JpaRepository<Patient, UUID> {
     @Query("SELECT DISTINCT p FROM Patient p " +
            "WHERE EXISTS (SELECT 1 FROM TumorBoardReview r WHERE r.patient = p)")
     List<Patient> findAllInTumorBoard();
+
+    /** Paginated variant of {@link #findAllInTumorBoard()}. */
+    @Query(value = "SELECT DISTINCT p FROM Patient p " +
+                   "WHERE EXISTS (SELECT 1 FROM TumorBoardReview r WHERE r.patient = p)",
+           countQuery = "SELECT COUNT(DISTINCT p) FROM Patient p " +
+                        "WHERE EXISTS (SELECT 1 FROM TumorBoardReview r WHERE r.patient = p)")
+    Page<Patient> findAllInTumorBoard(Pageable pageable);
 
     /**
      * Anonymize patient data (for GDPR/retention compliance)
