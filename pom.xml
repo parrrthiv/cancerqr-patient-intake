@@ -82,6 +82,13 @@
             <artifactId>s3</artifactId>
             <version>${aws.sdk.version}</version>
         </dependency>
+
+        <!-- Rate limiting (PR 16). In-memory; per-instance state. -->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j-core</artifactId>
+            <version>8.10.1</version>
+        </dependency>
         
         <!-- JSON Processing -->
         <dependency>
