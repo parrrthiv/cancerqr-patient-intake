@@ -9,6 +9,7 @@ import com.oncology.intake.entity.Report.ReportType;
 import com.oncology.intake.exception.IntakeExceptions.PatientNotFoundException;
 import com.oncology.intake.repository.PatientRepository;
 import com.oncology.intake.repository.ReportRepository;
+import com.oncology.intake.security.WhatsAppNumberHasher;
 import com.oncology.intake.util.MediaValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,6 +36,7 @@ public class PatientIntakeService {
     private final ReportRepository reportRepository;
     private final StorageService storageService;
     private final AuditService auditService;
+    private final WhatsAppNumberHasher whatsAppNumberHasher;
 
     /** Hard cap on uploaded medical reports, in megabytes. Wired from {@code app.max-upload-size-mb}. */
     @Value("${app.max-upload-size-mb:25}")
@@ -50,7 +52,13 @@ public class PatientIntakeService {
 
     @Transactional
     public Patient findOrCreatePatient(String whatsappNumber, String contactName) {
-        return patientRepository.findByWhatsappNumber(whatsappNumber)
+        // Normalise so the same human always produces the same hash regardless
+        // of how the number is formatted on the way in. Store the normalised
+        // form too, so encrypted column and hash column never drift apart.
+        String normalised = WhatsAppNumberHasher.normalise(whatsappNumber);
+        String hash = whatsAppNumberHasher.hash(normalised);
+
+        return patientRepository.findByWhatsappNumberHash(hash)
                 .map(patient -> {
                     patient.setLastInteractionAt(LocalDateTime.now());
                     if (patient.getName() == null && contactName != null) {
@@ -60,7 +68,9 @@ public class PatientIntakeService {
                 })
                 .orElseGet(() -> {
                     Patient newPatient = Patient.builder()
-                            .whatsappNumber(whatsappNumber)
+                            .whatsappNumber(normalised)
+                            // whatsappNumberHash is set automatically by
+                            // PatientHashListener on @PrePersist.
                             .name(contactName)
                             .conversationState(ConversationState.INITIAL)
                             .lastInteractionAt(LocalDateTime.now())
@@ -82,10 +92,11 @@ public class PatientIntakeService {
     }
 
     /**
-     * Get patient by WhatsApp number
+     * Get patient by WhatsApp number. Hashes internally — callers pass plaintext.
      */
     public Optional<Patient> findByWhatsappNumber(String whatsappNumber) {
-        return patientRepository.findByWhatsappNumber(whatsappNumber);
+        return patientRepository.findByWhatsappNumberHash(
+                whatsAppNumberHasher.hash(whatsappNumber));
     }
 
     /**

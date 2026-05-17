@@ -20,14 +20,20 @@ import java.util.UUID;
 public interface PatientRepository extends JpaRepository<Patient, UUID> {
 
     /**
-     * Find patient by WhatsApp number
+     * Find a patient by the HMAC-SHA256 hash of their normalised WhatsApp number.
+     *
+     * <p>The plaintext column is AES-GCM-encrypted with a fresh IV per write,
+     * so direct equality queries on it never match. Lookups go through the
+     * companion {@code whatsapp_number_hash} column. Callers should compute
+     * the hash via {@link com.oncology.intake.security.WhatsAppNumberHasher#hash(String)}
+     * before invoking this method.
      */
-    Optional<Patient> findByWhatsappNumber(String whatsappNumber);
+    Optional<Patient> findByWhatsappNumberHash(String whatsappNumberHash);
 
     /**
-     * Check if patient exists by WhatsApp number
+     * Existence check by HMAC-SHA256 hash. See {@link #findByWhatsappNumberHash}.
      */
-    boolean existsByWhatsappNumber(String whatsappNumber);
+    boolean existsByWhatsappNumberHash(String whatsappNumberHash);
 
     /**
      * Find all patients in a specific conversation state

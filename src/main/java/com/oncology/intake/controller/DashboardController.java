@@ -7,6 +7,7 @@ import com.oncology.intake.entity.Doctor.PhysicianDomain;
 import com.oncology.intake.repository.*;
 import com.oncology.intake.security.DoctorPrincipal;
 import com.oncology.intake.security.PatientAccessService;
+import com.oncology.intake.security.WhatsAppNumberHasher;
 import com.oncology.intake.service.AuditService;
 import com.oncology.intake.service.PatientIntakeService;
 import com.oncology.intake.service.ReportDataExtractionService;
@@ -65,6 +66,7 @@ public class DashboardController {
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final PatientAccessService patientAccessService;
+    private final WhatsAppNumberHasher whatsAppNumberHasher;
 
     private static final String REFERRAL_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -476,7 +478,12 @@ public class DashboardController {
             return "redirect:/dashboard/patients/add";
         }
 
-        if (patientRepository.existsByWhatsappNumber(whatsappNumber)) {
+        // Normalise so "+91 98765 43210" and "919876543210" collide on the hash
+        // — the same human shouldn't be created twice just because of formatting.
+        String normalisedNumber = WhatsAppNumberHasher.normalise(whatsappNumber);
+        String numberHash = whatsAppNumberHasher.hash(normalisedNumber);
+
+        if (patientRepository.existsByWhatsappNumberHash(numberHash)) {
             redirectAttributes.addFlashAttribute("error",
                     "A patient with this WhatsApp number already exists.");
             return "redirect:/dashboard/patients/add";
@@ -485,7 +492,8 @@ public class DashboardController {
         LocalDateTime now = LocalDateTime.now();
         Patient patient = Patient.builder()
                 .name(name)
-                .whatsappNumber(whatsappNumber)
+                .whatsappNumber(normalisedNumber)
+                // whatsappNumberHash is set automatically by PatientHashListener
                 .cancerType(cancerType)
                 .age(age)
                 .weightKg(weightKg)

@@ -1,6 +1,7 @@
 package com.oncology.intake.entity;
 
 import com.oncology.intake.security.EncryptedStringConverter;
+import com.oncology.intake.security.PatientHashListener;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -22,10 +23,14 @@ import java.util.UUID;
  */
 @Entity
 @Table(name = "patients", indexes = {
-    @Index(name = "idx_whatsapp_number", columnList = "whatsapp_number", unique = true),
+    // Note: no unique index on whatsapp_number itself — encrypted writes use a
+    // random IV per row, so identical plaintext numbers produce different
+    // ciphertext. Uniqueness lives on whatsapp_number_hash (see below).
+    @Index(name = "idx_patients_whatsapp_number_hash", columnList = "whatsapp_number_hash", unique = true),
     @Index(name = "idx_created_at", columnList = "created_at"),
     @Index(name = "idx_patients_referring_doctor_id", columnList = "referring_doctor_id")
 })
+@EntityListeners(PatientHashListener.class)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -37,8 +42,19 @@ public class Patient {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "whatsapp_number", nullable = false, unique = true, length = 20)
+    // Stored AES-256-GCM encrypted via EncryptedStringConverter (PR 10).
+    // The unique-by-phone-number invariant is enforced via whatsappNumberHash below.
+    // Always set this through whatsappNumber's setter so PatientHashListener
+    // refreshes the hash on every persist/update.
+    @Column(name = "whatsapp_number", nullable = false, length = 500)
+    @Convert(converter = EncryptedStringConverter.class)
     private String whatsappNumber;
+
+    // HMAC-SHA256(normalised whatsappNumber) — see WhatsAppNumberHasher.
+    // Populated automatically by PatientHashListener on @PrePersist / @PreUpdate.
+    // Don't set this directly; setting whatsappNumber is sufficient.
+    @Column(name = "whatsapp_number_hash", nullable = false, length = 64)
+    private String whatsappNumberHash;
 
     // Stored AES-256-GCM encrypted via {@link EncryptedStringConverter}. Column
     // is widened to 500 chars to fit ciphertext + base64 + prefix overhead for

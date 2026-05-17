@@ -124,7 +124,8 @@ Production profile expects these environment variables:
 | `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_WEBHOOK_SECRET` | WhatsApp Cloud API. `WEBHOOK_SECRET` is the Meta App Secret used to HMAC-verify inbound webhooks; leave empty in dev to skip the check, always set it in production. |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated list of dashboard origins (e.g. `https://testapi.cancerqr.com`). Required in production. |
 | `SESSION_COOKIE_SECURE` | Forced to `true` by the production profile; only override locally when debugging over plain HTTP. |
-| `PHI_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-256 key used to encrypt PHI columns (`patient.name`, `doctor.full_name`, `doctor.email`, `doctor.phone`) at rest. Generate with `openssl rand -base64 32`. **Required in production**; loss of this key = permanent loss of every encrypted PHI value. |
+| `PHI_ENCRYPTION_KEY` | Base64-encoded 32-byte AES-256 key used to encrypt PHI columns (`patient.name`, `patient.whatsapp_number`, `doctor.full_name`, `doctor.email`, `doctor.phone`) at rest. Generate with `openssl rand -base64 32`. **Required in production**; loss of this key = permanent loss of every encrypted PHI value. |
+| `PHI_HMAC_KEY` | Base64-encoded 32-byte HMAC-SHA256 key for the `patients.whatsapp_number_hash` lookup column. Generate SEPARATELY from `PHI_ENCRYPTION_KEY` with `openssl rand -base64 32` — must be a different value. **Required in production**; loss is recoverable but requires re-hashing every row's decrypted number under the new key. |
 | `AI_VERIFICATION_ENABLED`, `ANTHROPIC_API_KEY` | Optional Claude review |
 
 `deploy/env.example` is a template — copy it to `.env` for `docker compose`.

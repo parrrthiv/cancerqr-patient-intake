@@ -80,14 +80,20 @@ storage:
     secret-key: ${AWS_SECRET_KEY:}
     endpoint: ${S3_ENDPOINT:}  # For MinIO
 
-# PHI column encryption.
-#  - In `production` profile, MUST be set or the app fails to start (see PhiEncryptor).
-#  - In any other profile, leave empty for plaintext PHI columns (dev convenience).
-#  - Generate with: openssl rand -base64 32
-#  - Loss of this key = permanent loss of every encrypted PHI value.
+# PHI column encryption + HMAC lookup.
+#  - PHI_ENCRYPTION_KEY: AES-256 key for encrypted PHI columns (PhiEncryptor).
+#    Loss = permanent loss of every encrypted PHI value.
+#  - PHI_HMAC_KEY: HMAC key for the patients.whatsapp_number_hash lookup column
+#    (WhatsAppNumberHasher). Loss is recoverable but requires re-hashing every
+#    row's decrypted number under the new key.
+#  - Both MUST be set in the production profile (app fails fast otherwise).
+#  - Generate each with a SEPARATE: openssl rand -base64 32
+#  - Two different keys, never the same value.
 phi:
   encryption:
     key: ${PHI_ENCRYPTION_KEY:}
+  hmac:
+    key: ${PHI_HMAC_KEY:}
 
 # Medicine Formula Engine Configuration
 formula:
