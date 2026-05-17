@@ -23,6 +23,10 @@ spring:
     properties:
       hibernate:
         dialect: ${HIBERNATE_DIALECT:org.hibernate.dialect.H2Dialect}
+        # Batch-fetch lazy collections in groups of 20 instead of one-at-a-time.
+        # Kills the N+1 query pattern that bites every dashboard render touching
+        # Patient.reports or Patient.analyses.
+        default_batch_fetch_size: 20
 
   h2:
     console:
@@ -114,11 +118,9 @@ management:
 app:
   disclaimer: "DISCLAIMER: This is an initial computer-generated suggestion based on limited information. This is NOT a medical prescription. Please consult your oncologist for proper diagnosis and treatment plan. Do not start, stop, or change any medication without professional medical advice."
   max-upload-size-mb: 25
-  supported-media-types:
-    - image/jpeg
-    - image/png
-    - image/webp
-    - application/pdf
+  # Note: the actual MIME whitelist lives in MediaValidator.ALLOWED_CONTENT_TYPES
+  # (hardcoded as a security boundary). Don't reintroduce a config-driven list
+  # here — a misconfiguration could open the upload path to arbitrary types.
   conversation-timeout-minutes: 60
   cors:
     # Comma-separated list of origins allowed to call the dashboard.

@@ -3,6 +3,9 @@ target/
 uploads/
 *.log
 
+# Local editor backups — never commit. PR 9 had to remove a batch of these.
+*.bak
+
 # IDE
 .idea/
 *.iml
