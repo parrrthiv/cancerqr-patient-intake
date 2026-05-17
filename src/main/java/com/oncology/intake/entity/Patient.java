@@ -1,5 +1,7 @@
 package com.oncology.intake.entity;
 
+import com.oncology.intake.security.EncryptedBigDecimalConverter;
+import com.oncology.intake.security.EncryptedIntegerConverter;
 import com.oncology.intake.security.EncryptedStringConverter;
 import com.oncology.intake.security.PatientHashListener;
 import jakarta.persistence.*;
@@ -69,10 +71,15 @@ public class Patient {
     @Column(name = "age")
     private Integer age;
 
-    @Column(name = "weight_kg", precision = 5, scale = 2)
+    // PR 11: encrypted at rest. Column type changed from NUMERIC(5,2) to VARCHAR(500)
+    // by Flyway V8 to hold AES-GCM ciphertext. The converter handles BigDecimal <-> String
+    // and pass-through for legacy plaintext rows (no {enc:v1} prefix).
+    @Column(name = "weight_kg", length = 500)
+    @Convert(converter = EncryptedBigDecimalConverter.class)
     private BigDecimal weightKg;
 
-    @Column(name = "pain_scale")
+    @Column(name = "pain_scale", length = 500)
+    @Convert(converter = EncryptedIntegerConverter.class)
     private Integer painScale;
 
     @Column(name = "diagnosis_date")
@@ -129,16 +136,21 @@ public class Patient {
     @JoinColumn(name = "referring_doctor_id")
     private Doctor referringDoctor;
 
-    @Column(name = "cancer_stage", length = 50)
+    // PR 11: encrypted at rest. Column widened to VARCHAR(500) by Flyway V8.
+    @Column(name = "cancer_stage", length = 500)
+    @Convert(converter = EncryptedStringConverter.class)
     private String cancerStage;
 
-    @Column(name = "esr_value", precision = 6, scale = 2)
+    @Column(name = "esr_value", length = 500)
+    @Convert(converter = EncryptedBigDecimalConverter.class)
     private BigDecimal esrValue;
 
-    @Column(name = "crp_value", precision = 6, scale = 2)
+    @Column(name = "crp_value", length = 500)
+    @Convert(converter = EncryptedBigDecimalConverter.class)
     private BigDecimal crpValue;
 
-    @Column(name = "effective_pain_scale")
+    @Column(name = "effective_pain_scale", length = 500)
+    @Convert(converter = EncryptedIntegerConverter.class)
     private Integer effectivePainScale;
 
     // Helper methods
