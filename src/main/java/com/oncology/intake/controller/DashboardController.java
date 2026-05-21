@@ -29,7 +29,9 @@ import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -51,6 +53,13 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class DashboardController {
+
+    // Server-side validation for the admin / referring-doctor forms. The HTML
+    // input constraints (min/max, <select>, type=date) are advisory only and
+    // trivially bypassable, so every POST handler re-validates here.
+    private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+?[0-9][0-9\\s\\-()]{6,19}$");
+    private static final Pattern USERNAME_PATTERN = Pattern.compile("^[A-Za-z0-9._-]{3,50}$");
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 
     private final DoctorRepository doctorRepository;
     private final PatientRepository patientRepository;
@@ -504,6 +513,46 @@ public class DashboardController {
             return "redirect:/dashboard/patients/add";
         }
 
+        // Validate server-side, mirroring the WhatsApp intake bounds. The form's
+        // HTML constraints are advisory only.
+        List<String> errors = new ArrayList<>();
+        String trimmedName = name == null ? "" : name.trim();
+        if (trimmedName.isEmpty() || trimmedName.length() > 100) {
+            errors.add("Patient name is required (max 100 characters).");
+        }
+        if (whatsappNumber == null || !PHONE_PATTERN.matcher(whatsappNumber.trim()).matches()) {
+            errors.add("Enter a valid WhatsApp number (e.g. +919876543210).");
+        }
+        if (!isKnownCancerType(cancerType)) {
+            errors.add("Please select a valid cancer type.");
+        }
+        if (age != null && (age < 0 || age > 120)) {
+            errors.add("Age must be between 0 and 120.");
+        }
+        if (weightKg != null
+                && (weightKg.compareTo(BigDecimal.ONE) < 0
+                    || weightKg.compareTo(BigDecimal.valueOf(300)) > 0)) {
+            errors.add("Weight must be between 1 and 300 kg.");
+        }
+        if (painScale != null && (painScale < 0 || painScale > 10)) {
+            errors.add("Pain scale must be between 0 and 10.");
+        }
+        LocalDate parsedDiagnosisDate = null;
+        if (diagnosisDate != null && !diagnosisDate.isBlank()) {
+            try {
+                parsedDiagnosisDate = LocalDate.parse(diagnosisDate.trim());
+                if (parsedDiagnosisDate.isAfter(LocalDate.now())) {
+                    errors.add("Diagnosis date cannot be in the future.");
+                }
+            } catch (DateTimeParseException e) {
+                errors.add("Diagnosis date must be a valid date (YYYY-MM-DD).");
+            }
+        }
+        if (!errors.isEmpty()) {
+            redirectAttributes.addFlashAttribute("error", String.join(" ", errors));
+            return "redirect:/dashboard/patients/add";
+        }
+
         // Normalise so "+91 98765 43210" and "919876543210" collide on the hash
         // — the same human shouldn't be created twice just because of formatting.
         String normalisedNumber = WhatsAppNumberHasher.normalise(whatsappNumber);
@@ -517,15 +566,14 @@ public class DashboardController {
 
         LocalDateTime now = LocalDateTime.now();
         Patient patient = Patient.builder()
-                .name(name)
+                .name(trimmedName)
                 .whatsappNumber(normalisedNumber)
                 // whatsappNumberHash is set automatically by PatientHashListener
-                .cancerType(cancerType)
+                .cancerType(cancerType.trim())
                 .age(age)
                 .weightKg(weightKg)
                 .painScale(painScale)
-                .diagnosisDate(diagnosisDate != null && !diagnosisDate.isBlank()
-                        ? LocalDate.parse(diagnosisDate) : null)
+                .diagnosisDate(parsedDiagnosisDate)
                 .consentGiven(true)
                 .consentTimestamp(now)
                 .conversationState(Patient.ConversationState.COMPLETED)
@@ -547,7 +595,7 @@ public class DashboardController {
 
         log.info("Referring doctor id={} created patient id={}", doctor.getId(), patient.getId());
         redirectAttributes.addFlashAttribute("success",
-                "Patient '" + name + "' added successfully");
+                "Patient '" + trimmedName + "' added successfully");
         return "redirect:/dashboard/patients";
     }
 
@@ -556,6 +604,42 @@ public class DashboardController {
             return null;
         }
         return doctorRepository.findById(principal.getId()).orElse(null);
+    }
+
+    /** True if {@code cancerType} matches a configured cancer-type name (case-insensitive). */
+    private boolean isKnownCancerType(String cancerType) {
+        if (cancerType == null || cancerType.isBlank()) {
+            return false;
+        }
+        var protocols = protocolConfig.getCancerProtocols();
+        if (protocols == null) {
+            return false;
+        }
+        String candidate = cancerType.trim();
+        return protocols.values().stream()
+                .anyMatch(p -> p.getName() != null && p.getName().equalsIgnoreCase(candidate));
+    }
+
+    /**
+     * Shared field validation for the doctor create/update forms. Returns the
+     * (possibly empty) list of human-readable errors; password is validated
+     * separately because it is required on create but optional on update.
+     */
+    private List<String> validateDoctorFields(String fullName, String username, String email, String phone) {
+        List<String> errors = new ArrayList<>();
+        if (fullName == null || fullName.trim().isEmpty() || fullName.trim().length() > 100) {
+            errors.add("Full name is required (max 100 characters).");
+        }
+        if (username == null || !USERNAME_PATTERN.matcher(username.trim()).matches()) {
+            errors.add("Username must be 3-50 characters: letters, digits, dot, underscore or hyphen.");
+        }
+        if (email != null && !email.isBlank() && !EMAIL_PATTERN.matcher(email.trim()).matches()) {
+            errors.add("Email address is not valid.");
+        }
+        if (phone != null && !phone.isBlank() && !PHONE_PATTERN.matcher(phone.trim()).matches()) {
+            errors.add("Phone number is not valid.");
+        }
+        return errors;
     }
 
     // ── Doctor Management (Admin Only) ──────────────────────────────────
@@ -596,6 +680,15 @@ public class DashboardController {
         Doctor admin = requireAdmin(principal);
         if (admin == null) {
             return "redirect:/dashboard";
+        }
+
+        List<String> errors = validateDoctorFields(fullName, username, email, phone);
+        if (password == null || password.length() < 8) {
+            errors.add("Password must be at least 8 characters.");
+        }
+        if (!errors.isEmpty()) {
+            redirectAttributes.addFlashAttribute("error", String.join(" ", errors));
+            return "redirect:/dashboard/doctors";
         }
 
         if (doctorRepository.existsByUsername(username)) {
@@ -675,6 +768,15 @@ public class DashboardController {
         if (doctor == null) {
             redirectAttributes.addFlashAttribute("error", "Doctor not found");
             return "redirect:/dashboard/doctors";
+        }
+
+        List<String> errors = validateDoctorFields(fullName, username, email, phone);
+        if (password != null && !password.isBlank() && password.length() < 8) {
+            errors.add("Password must be at least 8 characters.");
+        }
+        if (!errors.isEmpty()) {
+            redirectAttributes.addFlashAttribute("error", String.join(" ", errors));
+            return "redirect:/dashboard/doctors/" + id + "/edit";
         }
 
         if (!doctor.getUsername().equals(username) && doctorRepository.existsByUsername(username)) {
