@@ -113,6 +113,21 @@ public interface PatientRepository extends JpaRepository<Patient, UUID> {
     Page<Patient> findAllInTumorBoard(Pageable pageable);
 
     /**
+     * Atomically advance a patient's conversation state, but only if it is still
+     * in the expected state. Returns the number of rows updated: 1 means this
+     * caller won the transition, 0 means another concurrent or re-delivered event
+     * already advanced it. Used to make WhatsApp media-upload steps race-safe so
+     * a single step can't ingest two files (see ConversationService).
+     */
+    @Modifying
+    @Query("UPDATE Patient p SET p.conversationState = :next, " +
+           "p.lastInteractionAt = CURRENT_TIMESTAMP " +
+           "WHERE p.id = :id AND p.conversationState = :expected")
+    int advanceConversationStateIfCurrent(@Param("id") UUID id,
+                                          @Param("expected") ConversationState expected,
+                                          @Param("next") ConversationState next);
+
+    /**
      * Anonymize patient data (for GDPR/retention compliance)
      */
     @Modifying

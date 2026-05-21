@@ -152,6 +152,9 @@ public class DashboardController {
             model.addAttribute("readOnly", true);
             List<Report> reports = reportRepository.findByPatientId(patientId);
             model.addAttribute("reports", reports);
+            // Only ADMIN may open un-approved reports; the template gates the
+            // download link accordingly (the endpoint enforces it regardless).
+            model.addAttribute("isAdmin", doctor.getDomain() == PhysicianDomain.ADMIN);
             Analysis latestAnalysis = analysisRepository
                     .findFirstByPatientIdOrderByCreatedAtDesc(patientId).orElse(null);
             model.addAttribute("analysis", latestAnalysis);
@@ -222,6 +225,9 @@ public class DashboardController {
         model.addAttribute("doctor", doctor);
         model.addAttribute("patient", patient);
         model.addAttribute("reports", reports);
+        // Only ADMIN may open un-approved reports; the template gates the download
+        // link accordingly (the endpoint enforces it regardless).
+        model.addAttribute("isAdmin", doctor.getDomain() == PhysicianDomain.ADMIN);
         model.addAttribute("analysis", latestAnalysis);
         model.addAttribute("review", review);
         model.addAttribute("reviewStatus", reviewStatus);

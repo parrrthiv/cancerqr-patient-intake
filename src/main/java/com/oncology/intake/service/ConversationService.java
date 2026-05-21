@@ -20,6 +20,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import com.oncology.intake.entity.Doctor;
 import com.oncology.intake.repository.DoctorRepository;
+import com.oncology.intake.repository.ReportRepository;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +46,7 @@ public class ConversationService {
     private final TumorBoardService tumorBoardService;
     private final CancerQRProtocolConfig protocolConfig;
     private final DoctorRepository doctorRepository;
+    private final ReportRepository reportRepository;
 
     // Validation patterns
     private static final Pattern AGE_PATTERN = Pattern.compile("^\\d{1,3}$");
@@ -223,14 +225,37 @@ public class ConversationService {
         };
         
         if (reportType == null) {
-            sendMessage(whatsappNumber, 
+            sendMessage(whatsappNumber,
                     "Thank you, but we're not expecting a document upload at this stage. " +
                     "Please follow the current prompt.");
             return;
         }
-        
-        // Download and store the media
-        processAndStoreMedia(patient, media, reportType, mediaType);
+
+        // Idempotency: WhatsApp delivers webhooks at-least-once and retries on
+        // slow/failed responses. If we've already stored this exact media, ignore
+        // the re-delivery instead of storing it again.
+        if (media.getId() != null
+                && reportRepository.findByWhatsappMediaId(media.getId()).isPresent()) {
+            log.info("Ignoring duplicate media {} for patient {}", media.getId(), patient.getId());
+            return;
+        }
+
+        // Atomically claim this intake step. If two media events arrive close
+        // together (or a duplicate is re-delivered) the report type is derived
+        // from the same ASK_* state, so without this only-one-wins guard both
+        // would be ingested — e.g. a blood report mis-stored as a second PET scan.
+        ConversationState nextState = (reportType == ReportType.PET_SCAN)
+                ? ConversationState.ASK_BLOOD_REPORT
+                : ConversationState.PROCESSING;
+        if (!patientIntakeService.advanceStateIfCurrent(patient.getId(), currentState, nextState)) {
+            log.info("Ignoring media for patient {} — step {} already handled",
+                    patient.getId(), currentState);
+            return;
+        }
+
+        // We own the step now; download and store. State has already advanced, so
+        // on failure we roll it back (passed through) to let the patient retry.
+        processAndStoreMedia(patient, media, reportType, mediaType, currentState);
     }
 
     // =============== State Handlers ===============
@@ -503,27 +528,30 @@ public class ConversationService {
 
     // =============== Media Processing ===============
 
-    private void processAndStoreMedia(Patient patient, MediaContent media, 
-                                       ReportType reportType, String mediaType) {
+    private void processAndStoreMedia(Patient patient, MediaContent media,
+                                       ReportType reportType, String mediaType,
+                                       ConversationState claimedFromState) {
         try {
             sendMessage(patient.getWhatsappNumber(), "📥 Receiving your document...");
-            
+
             // Download media from WhatsApp
             var downloadResult = whatsAppClient.downloadMediaById(media.getId()).block();
-            
+
             if (downloadResult == null || downloadResult.content() == null) {
-                sendMessage(patient.getWhatsappNumber(), 
+                // Release the step we claimed so the patient can re-upload.
+                patientIntakeService.updateConversationState(patient.getId(), claimedFromState);
+                sendMessage(patient.getWhatsappNumber(),
                         "❌ Failed to download the document. Please try uploading again.");
                 return;
             }
-            
+
             // Determine filename
             String fileName = media.getFilename();
             if (fileName == null || fileName.isEmpty()) {
-                fileName = reportType.name().toLowerCase() + "_" + 
+                fileName = reportType.name().toLowerCase() + "_" +
                           System.currentTimeMillis() + getExtension(downloadResult.mimeType());
             }
-            
+
             // Store the report
             patientIntakeService.storeReport(
                     patient.getId(),
@@ -533,25 +561,23 @@ public class ConversationService {
                     downloadResult.mimeType(),
                     media.getId()
             );
-            
-            // Move to next state
+
+            // State was already advanced by the atomic claim in processMediaMessage,
+            // so here we only acknowledge and (for the blood report) kick off analysis.
             if (reportType == ReportType.PET_SCAN) {
-                sendMessage(patient.getWhatsappNumber(), 
+                sendMessage(patient.getWhatsappNumber(),
                         "✅ PET Scan report received!\n\n" + ASK_BLOOD_REPORT_MESSAGE);
-                patientIntakeService.updateConversationState(
-                        patient.getId(), ConversationState.ASK_BLOOD_REPORT);
             } else if (reportType == ReportType.BLOOD_REPORT) {
                 sendMessage(patient.getWhatsappNumber(), PROCESSING_MESSAGE);
-                patientIntakeService.updateConversationState(
-                        patient.getId(), ConversationState.PROCESSING);
-                
-                // Generate and send analysis
                 generateAndSendAnalysis(patient);
             }
-            
+
         } catch (Exception e) {
             log.error("Failed to process media for patient: {}", patient.getId(), e);
-            sendMessage(patient.getWhatsappNumber(), 
+            // Release the claimed step so a transient failure doesn't strand the
+            // patient one step ahead with nothing stored.
+            patientIntakeService.updateConversationState(patient.getId(), claimedFromState);
+            sendMessage(patient.getWhatsappNumber(),
                     "❌ Error processing your document. Please try uploading again.");
         }
     }

@@ -120,6 +120,46 @@ class PatientAccessServiceTest {
             Report orphan = new Report();
             assertFalse(service.canViewReport(doctor(PhysicianDomain.ADMIN), orphan));
         }
+
+        @Test
+        @DisplayName("tumor-board reviewer sees an APPROVED report for an in-queue patient")
+        void reviewerSeesApprovedReport() {
+            Doctor medicalOnc = doctor(PhysicianDomain.MEDICAL_ONCOLOGY);
+            Patient p = patient();
+            when(reviewRepository.findByPatientId(p.getId()))
+                    .thenReturn(List.of(new TumorBoardReview()));
+
+            assertTrue(service.canViewReport(medicalOnc, report(p, Report.PhiReviewStatus.APPROVED)));
+        }
+
+        @Test
+        @DisplayName("tumor-board reviewer cannot open a PENDING report even for an in-queue patient")
+        void reviewerDeniedPendingReport() {
+            Doctor medicalOnc = doctor(PhysicianDomain.MEDICAL_ONCOLOGY);
+            Patient p = patient();
+            when(reviewRepository.findByPatientId(p.getId()))
+                    .thenReturn(List.of(new TumorBoardReview()));
+
+            assertFalse(service.canViewReport(medicalOnc, report(p, Report.PhiReviewStatus.PENDING)));
+        }
+
+        @Test
+        @DisplayName("tumor-board reviewer cannot open a REDACTION_NEEDED report")
+        void reviewerDeniedRedactionNeededReport() {
+            Doctor medicalOnc = doctor(PhysicianDomain.MEDICAL_ONCOLOGY);
+            Patient p = patient();
+            when(reviewRepository.findByPatientId(p.getId()))
+                    .thenReturn(List.of(new TumorBoardReview()));
+
+            assertFalse(service.canViewReport(medicalOnc, report(p, Report.PhiReviewStatus.REDACTION_NEEDED)));
+        }
+
+        @Test
+        @DisplayName("ADMIN can open a report regardless of PHI review status")
+        void adminSeesUnapprovedReport() {
+            Doctor admin = doctor(PhysicianDomain.ADMIN);
+            assertTrue(service.canViewReport(admin, report(patient(), Report.PhiReviewStatus.PENDING)));
+        }
     }
 
     // ── helpers ────────────────────────────────────────────────────────────
@@ -134,5 +174,12 @@ class PatientAccessServiceTest {
 
     private Patient patientWithReferringDoctor(Doctor referring) {
         return Patient.builder().id(UUID.randomUUID()).referringDoctor(referring).build();
+    }
+
+    private Report report(Patient patient, Report.PhiReviewStatus status) {
+        Report r = new Report();
+        r.setPatient(patient);
+        r.setPhiReviewStatus(status);
+        return r;
     }
 }

@@ -53,6 +53,17 @@ public class PatientAccessService {
         if (report == null || report.getPatient() == null) {
             return false;
         }
-        return canViewPatient(doctor, report.getPatient());
+        if (!canViewPatient(doctor, report.getPatient())) {
+            return false;
+        }
+        // PHI redaction gate (PR 13): only ADMIN may open a report that hasn't
+        // been cleared. Every other role — including the tumor-board domains —
+        // sees a report only once an admin marks it APPROVED. PENDING and
+        // REDACTION_NEEDED files stay hidden so un-reviewed or flagged PHI is
+        // never served to reviewers, even if they know the report's URL.
+        if (doctor.getDomain() == PhysicianDomain.ADMIN) {
+            return true;
+        }
+        return report.getPhiReviewStatus() == Report.PhiReviewStatus.APPROVED;
     }
 }

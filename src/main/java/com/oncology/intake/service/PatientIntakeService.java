@@ -183,6 +183,24 @@ public class PatientIntakeService {
     }
 
     /**
+     * Atomically claim an intake step: advance the conversation state to
+     * {@code next} only if the patient is still in {@code expected}. Returns
+     * true if this caller won the transition. Lets concurrent or re-delivered
+     * WhatsApp media uploads avoid being ingested twice against the same step
+     * (see {@code ConversationService.processMediaMessage}).
+     */
+    @Transactional
+    public boolean advanceStateIfCurrent(UUID patientId, ConversationState expected,
+                                         ConversationState next) {
+        int updated = patientRepository.advanceConversationStateIfCurrent(patientId, expected, next);
+        if (updated > 0) {
+            auditService.logPatientAction(patientId, AuditAction.CONVERSATION_STATE_CHANGED,
+                    String.format("State: %s -> %s (claimed)", expected, next));
+        }
+        return updated > 0;
+    }
+
+    /**
      * Record consent given
      */
     @Transactional

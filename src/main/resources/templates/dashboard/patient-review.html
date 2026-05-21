@@ -127,11 +127,16 @@
                         <div th:if="${reports != null and !reports.isEmpty()}" th:each="report : ${reports}"
                              class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                             <span th:text="'📄 ' + ${report.reportType.displayName}">📄 Report</span>
-                            <a th:href="@{/dashboard/reports/{id}/view(id=${report.id})}"
+                            <a th:if="${isAdmin or report.phiReviewStatus.name() == 'APPROVED'}"
+                               th:href="@{/dashboard/reports/{id}/view(id=${report.id})}"
                                target="_blank"
                                class="text-blue-600 hover:text-blue-800 font-medium text-sm">
                                 📥 View
                             </a>
+                            <span th:unless="${isAdmin or report.phiReviewStatus.name() == 'APPROVED'}"
+                                  class="text-gray-400 font-medium text-sm" title="Awaiting PHI review">
+                                🔒 Held for PHI review
+                            </span>
                         </div>
                         <!-- Fallback when no reports exist -->
                         <div th:if="${reports == null or reports.isEmpty()}" class="space-y-2">
