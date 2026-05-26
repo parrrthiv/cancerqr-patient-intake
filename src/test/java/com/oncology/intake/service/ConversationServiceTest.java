@@ -5,6 +5,7 @@ import com.oncology.intake.entity.Patient;
 import com.oncology.intake.entity.Patient.ConversationState;
 import com.oncology.intake.repository.DoctorRepository;
 import com.oncology.intake.repository.PatientRepository;
+import com.oncology.intake.repository.ReportRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -55,6 +56,9 @@ class ConversationServiceTest {
     @Mock
     private DoctorRepository doctorRepository;
 
+    @Mock
+    private ReportRepository reportRepository;
+
     private ConversationService conversationService;
 
     @Captor
@@ -72,7 +76,8 @@ class ConversationServiceTest {
                 auditService,
                 tumorBoardService,
                 protocolConfig,
-                doctorRepository
+                doctorRepository,
+                reportRepository
         );
 
         testPatient = Patient.builder()
