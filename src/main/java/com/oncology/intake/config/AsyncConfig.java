@@ -7,6 +7,7 @@ import org.springframework.aop.interceptor.AsyncUncaughtExceptionHandler;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.AsyncConfigurer;
 import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Async + uncaught exception handling.
@@ -22,6 +23,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
  */
 @Configuration
 @EnableAsync
+@EnableScheduling
 @RequiredArgsConstructor
 @Slf4j
 public class AsyncConfig implements AsyncConfigurer {
