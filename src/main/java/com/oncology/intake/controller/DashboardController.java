@@ -791,6 +791,16 @@ public class DashboardController {
             doctor.setPassword(passwordEncoder.encode(password));
         }
         doctor.setDomain(domain);
+        // Keep the referral code in sync with the role: generate one when a doctor
+        // becomes a Referring Doctor (createDoctor only does this at creation time),
+        // and clear it if they move out of that role so a stale code can't be used.
+        if (domain == PhysicianDomain.REFERRING_DOCTOR) {
+            if (doctor.getReferralCode() == null || doctor.getReferralCode().isBlank()) {
+                doctor.setReferralCode(generateUniqueReferralCode());
+            }
+        } else {
+            doctor.setReferralCode(null);
+        }
         doctor.setEmail(email);
         doctor.setPhone(phone);
         doctorRepository.save(doctor);
@@ -798,6 +808,38 @@ public class DashboardController {
         log.info("Admin id={} updated doctor id={} domain={}", admin.getId(), doctor.getId(), domain);
         redirectAttributes.addFlashAttribute("success",
                 "Doctor '" + fullName + "' updated successfully");
+        return "redirect:/dashboard/doctors";
+    }
+
+    /**
+     * Regenerate a referring doctor's referral code (admin only). Useful when a
+     * code is leaked or a doctor needs a fresh one. Role is also enforced by
+     * SecurityConfig's /dashboard/doctors/** matcher; this is belt-and-braces.
+     */
+    @PostMapping("/doctors/{id}/referral-code")
+    public String regenerateReferralCode(@PathVariable UUID id,
+                                         @AuthenticationPrincipal DoctorPrincipal principal,
+                                         RedirectAttributes redirectAttributes) {
+        Doctor admin = requireAdmin(principal);
+        if (admin == null) {
+            return "redirect:/dashboard";
+        }
+        Doctor doctor = doctorRepository.findById(id).orElse(null);
+        if (doctor == null) {
+            redirectAttributes.addFlashAttribute("error", "Doctor not found");
+            return "redirect:/dashboard/doctors";
+        }
+        if (doctor.getDomain() != PhysicianDomain.REFERRING_DOCTOR) {
+            redirectAttributes.addFlashAttribute("error",
+                    "Referral codes apply only to Referring Doctors.");
+            return "redirect:/dashboard/doctors";
+        }
+        String code = generateUniqueReferralCode();
+        doctor.setReferralCode(code);
+        doctorRepository.save(doctor);
+        log.info("Admin id={} regenerated referral code for doctor id={}", admin.getId(), doctor.getId());
+        redirectAttributes.addFlashAttribute("success",
+                "New referral code for " + doctor.getFullName() + ": " + code);
         return "redirect:/dashboard/doctors";
     }
 
