@@ -159,10 +159,19 @@
                                   th:text="${doc.domain.displayName}">Domain</span>
                         </td>
                         <td class="px-6 py-4">
-                            <span th:if="${doc.referralCode != null}"
-                                  class="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-mono rounded-full"
-                                  th:text="${doc.referralCode}">REF-XXXX</span>
-                            <span th:unless="${doc.referralCode != null}" class="text-gray-400 text-sm">-</span>
+                            <div th:if="${doc.domain.name() == 'REFERRING_DOCTOR'}" class="flex items-center space-x-2">
+                                <span th:if="${doc.referralCode != null}"
+                                      class="px-2 py-1 bg-purple-100 text-purple-700 text-xs font-mono rounded-full"
+                                      th:text="${doc.referralCode}">REF-XXXX</span>
+                                <button th:if="${doc.referralCode != null}" type="button"
+                                        th:attr="onclick=|navigator.clipboard.writeText('${doc.referralCode}')|"
+                                        class="text-xs text-gray-500 hover:text-gray-700" title="Copy code">Copy</button>
+                                <form th:action="@{/dashboard/doctors/{id}/referral-code(id=${doc.id})}" method="post" class="inline">
+                                    <button type="submit" class="text-xs text-blue-600 hover:text-blue-800"
+                                            th:text="${doc.referralCode != null ? 'Regenerate' : 'Generate'}">Regenerate</button>
+                                </form>
+                            </div>
+                            <span th:unless="${doc.domain.name() == 'REFERRING_DOCTOR'}" class="text-gray-400 text-sm">-</span>
                         </td>
                         <td class="px-6 py-4 text-sm text-gray-600" th:text="${doc.email != null ? doc.email : '-'}">email</td>
                         <td class="px-6 py-4">
