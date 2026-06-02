@@ -6,11 +6,18 @@ import com.oncology.intake.exception.IntakeExceptions.MediaDownloadException;
 import com.oncology.intake.exception.IntakeExceptions.WhatsAppApiException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
 
@@ -147,23 +154,49 @@ public class WhatsAppClientService {
     }
 
     /**
-     * Download media content from URL
+     * Download media content from a URL straight to a temp file on disk, without
+     * buffering the whole payload in the heap. Streams the response body chunk by
+     * chunk via {@link DataBufferUtils#write}. Caller owns the returned temp file
+     * and must delete it when done. (This also sidesteps WebClient's default
+     * in-memory codec limit, which would otherwise reject media larger than 256 KB.)
      */
-    public Mono<byte[]> downloadMedia(String mediaUrl) {
-        return WebClient.create()
+    public Mono<Path> downloadMediaToFile(String mediaUrl) {
+        final Path tempFile;
+        try {
+            tempFile = Files.createTempFile("cqr-media-", ".tmp");
+        } catch (IOException e) {
+            return Mono.error(new MediaDownloadException("Failed to create temp file for media download"));
+        }
+
+        Flux<DataBuffer> body = WebClient.create()
                 .get()
                 .uri(mediaUrl)
                 .header("Authorization", "Bearer " + whatsAppConfig.getAccessToken())
                 .retrieve()
                 .onStatus(HttpStatusCode::isError, response ->
                         response.bodyToMono(String.class)
-                                .flatMap(body -> Mono.error(
-                                        new MediaDownloadException("HTTP " + response.statusCode() + ": " + body)
+                                .flatMap(b -> Mono.error(
+                                        new MediaDownloadException("HTTP " + response.statusCode() + ": " + b)
                                 ))
                 )
-                .bodyToMono(byte[].class)
-                .doOnSuccess(bytes -> log.debug("Downloaded media: {} bytes", bytes.length))
-                .doOnError(e -> log.error("Failed to download media from URL", e));
+                .bodyToFlux(DataBuffer.class);
+
+        return DataBufferUtils.write(body, tempFile,
+                        StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)
+                .then(Mono.just(tempFile))
+                .doOnSuccess(p -> log.debug("Downloaded media to temp file: {}", p))
+                .doOnError(e -> {
+                    log.error("Failed to download media from URL", e);
+                    deleteQuietly(tempFile);
+                });
+    }
+
+    private static void deleteQuietly(Path p) {
+        try {
+            Files.deleteIfExists(p);
+        } catch (IOException ignored) {
+            // best effort
+        }
     }
 
     /**
@@ -171,9 +204,9 @@ public class WhatsAppClientService {
      */
     public Mono<MediaDownloadResult> downloadMediaById(String mediaId) {
         return getMediaUrl(mediaId)
-                .flatMap(urlResponse -> downloadMedia(urlResponse.getUrl())
-                        .map(content -> new MediaDownloadResult(
-                                content,
+                .flatMap(urlResponse -> downloadMediaToFile(urlResponse.getUrl())
+                        .map(filePath -> new MediaDownloadResult(
+                                filePath,
                                 urlResponse.getMimeType(),
                                 urlResponse.getFileSize()
                         ))
@@ -247,5 +280,5 @@ public class WhatsAppClientService {
     
     public record ListOption(String id, String title, String description) {}
     
-    public record MediaDownloadResult(byte[] content, String mimeType, Long fileSize) {}
+    public record MediaDownloadResult(Path filePath, String mimeType, Long fileSize) {}
 }

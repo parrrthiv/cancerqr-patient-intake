@@ -16,6 +16,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.UUID;
@@ -95,6 +96,35 @@ public class StorageService {
         }
     }
 
+    /**
+     * Store a file already spooled to disk, WITHOUT loading it into the heap.
+     * The S3 path uses {@code RequestBody.fromFile} (streams from disk) and the
+     * checksum is computed by streaming — so peak heap stays at a small buffer
+     * regardless of file size. This is the path the WhatsApp upload flow uses to
+     * avoid OOM under concurrent large uploads.
+     */
+    public StorageResult storeFile(Path file, String originalFileName,
+                                  String contentType, UUID patientId) {
+        String key = generateStorageKey(patientId, originalFileName);
+        String checksum = calculateChecksum(file);
+        long size;
+        try {
+            size = Files.size(file);
+        } catch (IOException e) {
+            throw new StorageException("Failed to read uploaded file size", e);
+        }
+
+        switch (storageConfig.getType()) {
+            case "local":
+                return storeLocally(file, key, checksum, size);
+            case "s3":
+            case "minio":
+                return storeInS3(requireS3Client(), file, key, contentType, checksum, size);
+            default:
+                throw new StorageException("Unknown storage type: " + storageConfig.getType());
+        }
+    }
+
     public byte[] retrieveFile(String storageKey) {
         switch (storageConfig.getType()) {
             case "local":
@@ -161,6 +191,39 @@ public class StorageService {
             return new StorageResult(key, checksum, (long) content.length);
         } catch (IOException e) {
             throw new StorageException("Failed to store file locally", e);
+        }
+    }
+
+    private StorageResult storeLocally(Path source, String key, String checksum, long size) {
+        try {
+            Path filePath = Paths.get(storageConfig.getLocal().getBasePath(), key);
+            Files.createDirectories(filePath.getParent());
+            Files.copy(source, filePath, StandardCopyOption.REPLACE_EXISTING);
+            log.debug("File stored locally (streamed): {}", filePath);
+            return new StorageResult(key, checksum, size);
+        } catch (IOException e) {
+            throw new StorageException("Failed to store file locally", e);
+        }
+    }
+
+    private StorageResult storeInS3(S3Client s3, Path source, String key,
+                                   String contentType, String checksum, long size) {
+        try {
+            PutObjectRequest request = PutObjectRequest.builder()
+                    .bucket(storageConfig.getS3().getBucketName())
+                    .key(key)
+                    .contentType(contentType)
+                    .contentLength(size)
+                    .serverSideEncryption(ServerSideEncryption.AES256)
+                    .build();
+
+            // fromFile streams the file off disk in chunks — no full-file heap buffer.
+            s3.putObject(request, RequestBody.fromFile(source));
+
+            log.debug("File stored in S3 (streamed): {}", key);
+            return new StorageResult(key, checksum, size);
+        } catch (S3Exception e) {
+            throw new StorageException("Failed to store file in S3: " + e.getMessage(), e);
         }
     }
 
@@ -251,6 +314,30 @@ public class StorageService {
             extension = originalFileName.substring(originalFileName.lastIndexOf("."));
         }
         return String.format("patients/%s/reports/%s%s", patientId, UUID.randomUUID(), extension);
+    }
+
+    private String calculateChecksum(Path file) {
+        try (InputStream in = Files.newInputStream(file)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                digest.update(buffer, 0, read);
+            }
+            byte[] hash = digest.digest();
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (NoSuchAlgorithmException e) {
+            log.warn("SHA-256 not available, skipping checksum");
+            return null;
+        } catch (IOException e) {
+            throw new StorageException("Failed to read file for checksum", e);
+        }
     }
 
     private String calculateChecksum(byte[] content) {

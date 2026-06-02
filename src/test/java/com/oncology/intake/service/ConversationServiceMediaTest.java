@@ -19,6 +19,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import reactor.core.publisher.Mono;
 
+import java.nio.file.Path;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -126,12 +127,12 @@ class ConversationServiceMediaTest {
                 p.getId(), ConversationState.ASK_PET_SCAN, ConversationState.ASK_BLOOD_REPORT))
                 .thenReturn(true);
         when(whatsAppClient.downloadMediaById(MEDIA_ID))
-                .thenReturn(Mono.just(new MediaDownloadResult(new byte[]{1, 2, 3}, "image/jpeg", 3L)));
+                .thenReturn(Mono.just(new MediaDownloadResult(Path.of("cqr-test-media.tmp"), "image/jpeg", 3L)));
 
         service.processMediaMessage(PHONE, media(), "image");
 
         verify(patientIntakeService).storeReport(
-                eq(p.getId()), eq(ReportType.PET_SCAN), any(byte[].class),
+                eq(p.getId()), eq(ReportType.PET_SCAN), any(Path.class),
                 anyString(), eq("image/jpeg"), eq(MEDIA_ID));
     }
 }

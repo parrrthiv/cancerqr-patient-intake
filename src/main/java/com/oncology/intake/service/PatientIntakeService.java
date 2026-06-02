@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -219,18 +220,19 @@ public class PatientIntakeService {
      */
     @Transactional
     public Report storeReport(UUID patientId, ReportType reportType,
-                               byte[] content, String fileName,
+                               Path file, String fileName,
                                String contentType, String whatsappMediaId) {
         Patient patient = getPatient(patientId);
 
         // Validate BEFORE storing: rejects empty / oversized / disallowed MIME /
         // declared-vs-actual content type mismatch. WhatsApp forwards whatever
         // content type the sender claimed; never trust it without this check.
-        MediaValidator.validate(content, contentType, maxUploadSizeMb * 1024L * 1024L);
+        // File-based validation reads only the size + first bytes (no heap buffer).
+        MediaValidator.validate(file, contentType, maxUploadSizeMb * 1024L * 1024L);
 
-        // Store file in storage service
+        // Store file (streamed off disk; no full-file heap buffer)
         StorageService.StorageResult storageResult =
-                storageService.storeFile(content, fileName, contentType, patientId);
+                storageService.storeFile(file, fileName, contentType, patientId);
         
         // Create report record
         Report report = Report.builder()
@@ -257,7 +259,7 @@ public class PatientIntakeService {
         patientRepository.save(patient);
         
         auditService.logPatientAction(patientId, AuditAction.REPORT_UPLOADED,
-                String.format("Report type: %s, size: %d bytes", reportType, content.length));
+                String.format("Report type: %s, size: %d bytes", reportType, storageResult.sizeBytes()));
 
         log.info("Stored {} report for patient {}", reportType, patientId);
 
