@@ -1,5 +1,10 @@
 package com.oncology.intake.util;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Set;
 
@@ -54,6 +59,54 @@ public final class MediaValidator {
             throw new InvalidMediaException(
                     "Could not identify file type from content. " +
                     "Declared: " + declared);
+        }
+        if (!detected.equals(declared)) {
+            throw new InvalidMediaException(
+                    "Content type mismatch: declared '" + declared +
+                    "' but bytes look like '" + detected + "'");
+        }
+    }
+
+    /**
+     * Same checks as {@link #validate(byte[], String, long)} but for a file already
+     * spooled to disk — reads only the size and the first 12 bytes, never the whole
+     * file into the heap. Used by the streaming upload path.
+     */
+    public static void validate(Path file, String declaredContentType, long maxSizeBytes) {
+        long size;
+        try {
+            size = Files.size(file);
+        } catch (IOException e) {
+            throw new InvalidMediaException("Could not read uploaded file");
+        }
+        if (size == 0) {
+            throw new InvalidMediaException("Empty file");
+        }
+        if (size > maxSizeBytes) {
+            throw new InvalidMediaException(
+                    "File too large: " + size + " bytes (max " + maxSizeBytes + ")");
+        }
+
+        String declared = normalizeContentType(declaredContentType);
+        if (!ALLOWED_CONTENT_TYPES.contains(declared)) {
+            throw new InvalidMediaException(
+                    "Unsupported content type: '" + declaredContentType + "'. " +
+                    "Allowed: " + ALLOWED_CONTENT_TYPES);
+        }
+
+        byte[] header = new byte[12];
+        int read;
+        try (InputStream in = Files.newInputStream(file)) {
+            read = in.readNBytes(header, 0, header.length);
+        } catch (IOException e) {
+            throw new InvalidMediaException("Could not read uploaded file");
+        }
+        byte[] actual = (read == header.length) ? header : Arrays.copyOf(header, read);
+
+        String detected = detectFromMagicBytes(actual);
+        if (detected == null) {
+            throw new InvalidMediaException(
+                    "Could not identify file type from content. Declared: " + declared);
         }
         if (!detected.equals(declared)) {
             throw new InvalidMediaException(

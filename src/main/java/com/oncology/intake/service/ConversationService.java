@@ -13,7 +13,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
@@ -530,19 +533,21 @@ public class ConversationService {
     private void processAndStoreMedia(Patient patient, MediaContent media,
                                        ReportType reportType, String mediaType,
                                        ConversationState claimedFromState) {
+        Path mediaFile = null;
         try {
             sendMessage(patient.getWhatsappNumber(), "📥 Receiving your document...");
 
-            // Download media from WhatsApp
+            // Download media from WhatsApp straight to a temp file (no heap buffer).
             var downloadResult = whatsAppClient.downloadMediaById(media.getId()).block();
 
-            if (downloadResult == null || downloadResult.content() == null) {
+            if (downloadResult == null || downloadResult.filePath() == null) {
                 // Release the step we claimed so the patient can re-upload.
                 patientIntakeService.updateConversationState(patient.getId(), claimedFromState);
                 sendMessage(patient.getWhatsappNumber(),
                         "❌ Failed to download the document. Please try uploading again.");
                 return;
             }
+            mediaFile = downloadResult.filePath();
 
             // Determine filename
             String fileName = media.getFilename();
@@ -551,11 +556,11 @@ public class ConversationService {
                           System.currentTimeMillis() + getExtension(downloadResult.mimeType());
             }
 
-            // Store the report
+            // Store the report (validation + storage stream off the temp file)
             patientIntakeService.storeReport(
                     patient.getId(),
                     reportType,
-                    downloadResult.content(),
+                    mediaFile,
                     fileName,
                     downloadResult.mimeType(),
                     media.getId()
@@ -578,6 +583,15 @@ public class ConversationService {
             patientIntakeService.updateConversationState(patient.getId(), claimedFromState);
             sendMessage(patient.getWhatsappNumber(),
                     "❌ Error processing your document. Please try uploading again.");
+        } finally {
+            // Always clean up the downloaded temp file.
+            if (mediaFile != null) {
+                try {
+                    Files.deleteIfExists(mediaFile);
+                } catch (IOException ex) {
+                    log.warn("Could not delete temp media file {}: {}", mediaFile, ex.getMessage());
+                }
+            }
         }
     }
 
