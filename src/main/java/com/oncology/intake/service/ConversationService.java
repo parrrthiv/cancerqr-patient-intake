@@ -2,7 +2,6 @@ package com.oncology.intake.service;
 
 import com.oncology.intake.config.CancerQRProtocolConfig;
 import com.oncology.intake.dto.AnalysisDto.AnalysisResult;
-import com.oncology.intake.dto.AnalysisDto.FormattedAnalysisMessage;
 import com.oncology.intake.dto.WhatsAppWebhookDto.*;
 import com.oncology.intake.entity.AuditLog.AuditAction;
 import com.oncology.intake.entity.Patient;
@@ -587,25 +586,15 @@ public class ConversationService {
             // Mark intake as completed
             patientIntakeService.markIntakeCompleted(patient.getId());
             
-            // Generate analysis
+            // Generate + persist the full analysis (medicines included) so the
+            // tumor board sees everything on the dashboard.
             AnalysisResult result = analysisService.generateAnalysis(patient.getId());
-            
-            // Format for WhatsApp
-            FormattedAnalysisMessage formatted = analysisService.formatForWhatsApp(result);
-            
-            // Send the analysis (may need to split if too long)
-            String fullMessage = formatted.getFullMessage();
-            if (fullMessage.length() > 4000) {
-                // Send in parts
-                sendMessage(patient.getWhatsappNumber(), formatted.getPatientSummary());
-                sendMessage(patient.getWhatsappNumber(), formatted.getMedicineSection());
-                if (!formatted.getSupportiveCareSection().isEmpty()) {
-                    sendMessage(patient.getWhatsappNumber(), formatted.getSupportiveCareSection());
-                }
-                sendMessage(patient.getWhatsappNumber(), formatted.getDisclaimer());
-            } else {
-                sendMessage(patient.getWhatsappNumber(), fullMessage);
-            }
+
+            // Patient receives DIET + LIFESTYLE guidance ONLY. Medicine/treatment
+            // suggestions are withheld until a qualified clinician reviews them —
+            // the system must not deliver unreviewed medical advice to a patient.
+            String patientMessage = analysisService.formatPatientDietMessage(result);
+            sendMessage(patient.getWhatsappNumber(), patientMessage);
             
             // Mark as sent
             var analysis = analysisService.getLatestAnalysis(patient.getId());

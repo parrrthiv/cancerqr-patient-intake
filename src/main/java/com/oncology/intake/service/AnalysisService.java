@@ -167,7 +167,93 @@ public class AnalysisService {
     }
 
     /**
-     * Format analysis for WhatsApp message
+     * Patient-facing message sent after intake completes.
+     *
+     * <p>Deliberately contains ONLY general diet + lifestyle guidance plus a note
+     * that the full assessment is under clinician review. Medicine / dose / CBD /
+     * herb / mushroom / fasting / supportive-care content is intentionally
+     * EXCLUDED so the system never delivers treatment suggestions to a patient
+     * before a qualified doctor on the tumor board has reviewed them (avoids
+     * unlicensed medical advice). The complete analysis — including medicines — is
+     * still persisted by {@link #generateAnalysis} and shown to clinicians on the
+     * dashboard; this method only changes what the PATIENT sees.
+     */
+    public String formatPatientDietMessage(AnalysisResult result) {
+        StringBuilder msg = new StringBuilder();
+
+        msg.append("🥗 *YOUR DIET & LIFESTYLE GUIDANCE*\n");
+        msg.append("━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+        msg.append("Thank you for completing your intake. Below are some general "
+                + "diet and lifestyle suggestions you can begin with.\n\n");
+
+        // Distinct diet + lifestyle strings from the cancer-type protocol matrix.
+        // Fasting is intentionally omitted — it is a medical intervention with
+        // contraindications (underweight, cachexia, severe pain) and should not be
+        // suggested to a patient without clinician oversight.
+        java.util.LinkedHashSet<String> diets = new java.util.LinkedHashSet<>();
+        java.util.LinkedHashSet<String> lifestyles = new java.util.LinkedHashSet<>();
+        if (result.getPhysicianProtocols() != null) {
+            for (var p : result.getPhysicianProtocols()) {
+                if (p.getDiet() != null && !p.getDiet().isBlank()) {
+                    diets.add(p.getDiet().trim());
+                }
+                if (p.getLifestyle() != null && !p.getLifestyle().isBlank()) {
+                    lifestyles.add(p.getLifestyle().trim());
+                }
+            }
+        }
+
+        if (!diets.isEmpty()) {
+            msg.append("🍽️ *Dietary focus:*\n");
+            for (String d : diets) {
+                msg.append("• ").append(d).append("\n");
+            }
+            msg.append("\n");
+        }
+        if (!lifestyles.isEmpty()) {
+            msg.append("🌿 *Lifestyle:*\n");
+            for (String l : lifestyles) {
+                msg.append("• ").append(l).append("\n");
+            }
+            msg.append("\n");
+        }
+
+        // Safe, generic baseline guidance — no medical claims, no dosing.
+        msg.append("🥦 *General healthy-eating tips:*\n");
+        msg.append("• Eat plenty of vegetables and fruit\n");
+        msg.append("• Choose whole, minimally processed foods\n");
+        msg.append("• Stay well hydrated with water\n");
+        msg.append("• Limit added sugar and processed/red meat\n\n");
+
+        // Safety signal (directs to care; not a treatment suggestion).
+        if (result.isRequiresUrgentReview()) {
+            msg.append("⚠️ Based on your responses, please seek prompt medical "
+                    + "attention if your symptoms are severe or worsening.\n\n");
+        }
+
+        msg.append("━━━━━━━━━━━━━━━━━━━━━━━━\n");
+        msg.append("🩺 *NEXT STEPS*\n");
+        msg.append("Your information has been securely shared with our medical "
+                + "team. A qualified doctor will review your reports and follow up "
+                + "with you regarding any treatment.\n\n");
+        msg.append("⚠️ This message provides general dietary guidance only. It is "
+                + "NOT a prescription or treatment plan. Please do not start, stop, "
+                + "or change any medication or treatment without consulting your "
+                + "doctor.\n");
+
+        if (result.getDisclaimerText() != null && !result.getDisclaimerText().isBlank()) {
+            msg.append("\n").append(result.getDisclaimerText());
+        }
+
+        return msg.toString();
+    }
+
+    /**
+     * Full clinician-oriented analysis format (includes medicine suggestions).
+     *
+     * <p><strong>Not sent to patients.</strong> The patient WhatsApp flow uses
+     * {@link #formatPatientDietMessage} instead; this richer format is retained
+     * for clinician/export use where medicine content is appropriate.
      */
     public FormattedAnalysisMessage formatForWhatsApp(AnalysisResult result) {
         StringBuilder fullMessage = new StringBuilder();
