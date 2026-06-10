@@ -146,6 +146,18 @@ app:
   # (hardcoded as a security boundary). Don't reintroduce a config-driven list
   # here — a misconfiguration could open the upload path to arbitrary types.
   conversation-timeout-minutes: 60
+  portal:
+    # Whether the PATIENT PORTAL may call the WhatsApp API:
+    #   - account-takeover OTP (sent when registering a number that already has a
+    #     patient record), and
+    #   - the doctor->patient message mirror.
+    # MUST be true in production: false turns OFF the account-takeover guard, so a
+    # portal login can be linked to an existing (possibly PHI-bearing) record
+    # WITHOUT proving ownership of the number. Set false ONLY in test environments
+    # where the WhatsApp Business API is in development mode and cannot deliver to
+    # arbitrary testers. Brand-new-number registration is unaffected either way.
+    # The web intake flow itself never uses WhatsApp.
+    whatsapp-enabled: ${PORTAL_WHATSAPP_ENABLED:true}
   cors:
     # Comma-separated list of origins allowed to call the dashboard.
     # NEVER use "*" with credentials. Override per-environment via env var.

@@ -409,6 +409,7 @@ What's wired and how to keep it that way:
 - **PHI redaction review** (PR 13): every uploaded report starts `PENDING` and is hidden from tumor-board reviewers until an ADMIN marks it `APPROVED` (or `REDACTION_NEEDED`) via `/dashboard/reports/phi-review`.
 - **Async safety** (PR 17): PDF extraction runs fire-and-forget via `ReportDataExtractionAsyncRunner` (a separate bean so the `@Async` proxy applies) — no PDF parsing on the request thread.
 - **Patient portal isolation** (patient-portal PR): TWO security filter chains. `/portal/**` (@Order(1)) authenticates patients (ROLE_PATIENT via `PatientAccountDetailsService`); the staff chain now requires `hasAnyRole(<PhysicianDomain names>)` instead of bare `authenticated()` — otherwise a patient session would satisfy `/dashboard/**`. NEVER revert the staff chain to `.anyRequest().authenticated()`; `PortalSecurityIntegrationTest` locks this in. Portal rate limits in `RateLimitFilter`: login per-phone 5/5min, register per-IP 10/h, verify per-IP 15/5min. Portal accounts: bcrypt passwords, encrypted phone + HMAC hash lookup (same pattern as `Patient.whatsappNumber`).
+- **Portal WhatsApp toggle** `app.portal.whatsapp-enabled` (env `PORTAL_WHATSAPP_ENABLED`, default `true`): gates the portal's account-takeover OTP AND the doctor→patient WhatsApp message mirror. `false` on the test box (WhatsApp API in dev mode can't deliver to arbitrary testers) → existing-record registration links the account WITHOUT ownership proof, and messages are portal-only. The web intake flow needs no WhatsApp regardless. **Must be `true` in production** (see go-live item 0a). Gating lives in `PatientPortalService.register` and `PatientMessageService.mirrorToWhatsApp`.
 
 ---
 
@@ -468,11 +469,17 @@ Done since the original list (do NOT re-do):
 Still open (real projects, not one-line fixes):
 
 0. **Portal go-live hardening** —
-   (a) SMS OTP for NEW-number portal registrations: today a brand-new number registers
-   without ownership proof (nothing to take over yet), but if that person later uses the
-   WhatsApp bot, the portal registrant could read the WhatsApp-collected data. Existing
-   records are already protected by the WhatsApp-OTP link flow.
-   (b) nginx: `client_max_body_size 30m;` for `/api/portal/` — the default 1 MB cap will
+   (a) **Re-enable `PORTAL_WHATSAPP_ENABLED=true` (CRITICAL).** The test box runs with it
+   `false` because the WhatsApp Business API is in development mode and can't deliver OTPs
+   to non-allowlisted testers. While false, the account-takeover guard is OFF: registering
+   a number that already has a (possibly PHI-bearing) patient record links a portal login
+   to it WITHOUT proving ownership, and doctor→patient messages are not mirrored to
+   WhatsApp. The default is `true`; go-live must NOT carry the test override.
+   (b) SMS OTP for NEW-number portal registrations: even with WhatsApp OTP on, a brand-new
+   number registers without ownership proof (nothing to take over yet), but if that person
+   later uses the WhatsApp bot, the portal registrant could read the WhatsApp-collected
+   data. Existing records are protected by the WhatsApp-OTP link flow (when enabled).
+   (c) nginx: `client_max_body_size 30m;` for `/api/portal/` — the default 1 MB cap will
    413 portal report uploads at the proxy (WhatsApp uploads never hit nginx, so this
    never surfaced before).
 2. **Resilience4j circuit breaker** (C11) — outbound WhatsApp/Claude calls have timeouts but no breaker; a sustained Meta outage ties up threads. Add a breaker around `WhatsAppClientService`.

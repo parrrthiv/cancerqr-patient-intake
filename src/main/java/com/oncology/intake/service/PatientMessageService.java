@@ -7,6 +7,7 @@ import com.oncology.intake.entity.PatientMessage;
 import com.oncology.intake.repository.PatientMessageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +41,16 @@ public class PatientMessageService {
     private final AuditService auditService;
 
     /**
+     * Shared with the portal: when {@code false} (test environments where the
+     * WhatsApp Business API is in development mode), the WhatsApp mirror is
+     * skipped entirely so no doomed API call is made. The portal inbox is always
+     * the source of truth, so patients still receive every message. Toggle via
+     * {@code PORTAL_WHATSAPP_ENABLED}.
+     */
+    @Value("${app.portal.whatsapp-enabled:true}")
+    private boolean whatsAppEnabled;
+
+    /**
      * Persist a message from {@code doctor} to {@code patient} and mirror it to
      * WhatsApp best-effort. Throws {@link IllegalArgumentException} with a
      * user-displayable message on validation failure.
@@ -71,6 +82,13 @@ public class PatientMessageService {
 
     /** Best-effort WhatsApp copy; failures are logged, never propagated. */
     private void mirrorToWhatsApp(Patient patient, Doctor doctor, String body) {
+        if (!whatsAppEnabled) {
+            // WhatsApp disabled for this environment (e.g. API in dev mode) —
+            // the portal inbox already has the message; skip the doomed call.
+            log.debug("WhatsApp mirror skipped (PORTAL_WHATSAPP_ENABLED=false) for patient {}",
+                    patient.getId());
+            return;
+        }
         try {
             String text = "💬 *Message from your care team*\n\n"
                     + body + "\n\n— " + doctor.getFullName()

@@ -21,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
@@ -72,6 +73,10 @@ class PatientPortalServiceTest {
                 messageRepository, doctorRepository, patientIntakeService, analysisService,
                 tumorBoardService, whatsAppClient, hasher, passwordEncoder, auditService,
                 protocolConfig);
+        // @Value field isn't populated by Spring in a plain Mockito test; default
+        // the suite to "WhatsApp OTP ON" (production behaviour). The disabled-mode
+        // tests flip it to false explicitly.
+        ReflectionTestUtils.setField(service, "whatsAppEnabled", true);
 
         // Deterministic hash: "h:" + normalised digits (mirrors hasher semantics).
         when(hasher.hash(anyString())).thenAnswer(inv ->
@@ -145,6 +150,49 @@ class PatientPortalServiceTest {
                 "OTP message must contain a 6-digit code");
         // No new patient row.
         verify(patientRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("OTP disabled: existing patient registers directly (enabled, no WhatsApp)")
+    void registerExistingPatientNoOtpWhenDisabled() {
+        ReflectionTestUtils.setField(service, "whatsAppEnabled", false);
+        Patient existing = Patient.builder().id(UUID.randomUUID())
+                .whatsappNumber(NEW_PHONE_NORMALISED).build();
+        when(accountRepository.findByPhoneHash(anyString())).thenReturn(Optional.empty());
+        when(patientRepository.findByWhatsappNumberHash(anyString())).thenReturn(Optional.of(existing));
+
+        RegistrationOutcome outcome = service.register(NEW_PHONE, "Asha Patel", "secret-pass");
+
+        assertEquals(RegistrationOutcome.CREATED, outcome, "no verification step when OTP is off");
+
+        ArgumentCaptor<PatientAccount> accCaptor = ArgumentCaptor.forClass(PatientAccount.class);
+        verify(accountRepository).save(accCaptor.capture());
+        PatientAccount acc = accCaptor.getValue();
+        assertTrue(acc.getEnabled(), "account is usable immediately");
+        assertEquals(existing.getId(), acc.getPatientId());
+        assertNull(acc.getOtpHash(), "no code generated");
+        // No WhatsApp call at all.
+        verify(whatsAppClient, never()).sendTextMessage(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("OTP disabled: a previously-pending account is enabled on re-register")
+    void registerReenablesPendingAccountWhenDisabled() {
+        ReflectionTestUtils.setField(service, "whatsAppEnabled", false);
+        PatientAccount pending = PatientAccount.builder()
+                .id(UUID.randomUUID()).patientId(UUID.randomUUID())
+                .phoneHash("h:" + NEW_PHONE_NORMALISED).phone(NEW_PHONE_NORMALISED)
+                .enabled(false).phoneVerified(false).otpHash("deadbeef")
+                .otpExpiresAt(java.time.LocalDateTime.now().plusMinutes(5)).otpAttempts(0)
+                .build();
+        when(accountRepository.findByPhoneHash(anyString())).thenReturn(Optional.of(pending));
+
+        RegistrationOutcome outcome = service.register(NEW_PHONE, "Asha Patel", "secret-pass");
+
+        assertEquals(RegistrationOutcome.CREATED, outcome);
+        assertTrue(pending.getEnabled());
+        assertNull(pending.getOtpHash(), "pending code cleared");
+        verify(whatsAppClient, never()).sendTextMessage(anyString(), anyString());
     }
 
     @Test

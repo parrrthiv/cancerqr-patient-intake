@@ -20,6 +20,7 @@ import com.oncology.intake.service.AnalysisService.PatientDietGuidance;
 import com.oncology.intake.util.MediaValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -106,6 +107,21 @@ public class PatientPortalService {
     private final AuditService auditService;
     private final CancerQRProtocolConfig protocolConfig;
 
+    /**
+     * Whether the portal may use the WhatsApp API for the account-takeover OTP.
+     *
+     * <p><strong>MUST be {@code true} in production.</strong> When {@code false},
+     * registering a phone number that already has a (possibly PHI-bearing)
+     * patient record links a new portal login to it WITHOUT proving ownership of
+     * the number — i.e. the account-takeover guard is OFF. Set {@code false} only
+     * in test environments where the WhatsApp Business API is in development mode
+     * and therefore cannot deliver a code to arbitrary testers. Toggle via
+     * {@code PORTAL_WHATSAPP_ENABLED}. Brand-new numbers are unaffected either way
+     * (they have no existing record to take over). See CLAUDE.md.
+     */
+    @Value("${app.portal.whatsapp-enabled:true}")
+    private boolean whatsAppEnabled;
+
     /** User-displayable problem; controllers surface the message as a flash error. */
     public static class PortalException extends RuntimeException {
         public PortalException(String message) {
@@ -149,6 +165,16 @@ public class PatientPortalService {
                 throw new PortalException(
                         "An account with this phone number already exists. Please sign in.");
             }
+            // Account is disabled (a verification was pending).
+            if (!whatsAppEnabled) {
+                // OTP delivery is off in this environment: enable the account
+                // directly with the freshly-submitted password. NOT for production
+                // — this is the account-takeover guard being intentionally bypassed.
+                account.setDisplayName(name);
+                account.setPassword(passwordEncoder.encode(rawPassword));
+                enableWithoutVerification(account);
+                return RegistrationOutcome.CREATED;
+            }
             // Pending verification. Don't resend while a code is still valid —
             // that would let an attacker spam the victim's WhatsApp.
             if (otpStillUsable(account)) {
@@ -164,7 +190,6 @@ public class PatientPortalService {
 
         Optional<Patient> existingPatient = patientRepository.findByWhatsappNumberHash(phoneHash);
         if (existingPatient.isPresent()) {
-            // Record may contain PHI — prove number ownership via WhatsApp first.
             PatientAccount account = PatientAccount.builder()
                     .patientId(existingPatient.get().getId())
                     .phoneHash(phoneHash)
@@ -175,6 +200,22 @@ public class PatientPortalService {
                     .phoneVerified(false)
                     .otpAttempts(0)
                     .build();
+
+            if (!whatsAppEnabled) {
+                // OTP delivery is off: link the portal login to the existing
+                // record WITHOUT proving ownership. Acceptable only in a test
+                // environment — see the whatsAppEnabled field javadoc.
+                account.setEnabled(true);
+                accountRepository.save(account);
+                auditService.logSystemAction(existingPatient.get().getId(),
+                        AuditAction.PORTAL_ACCOUNT_CREATED,
+                        "Portal account linked to existing patient WITHOUT verification (WhatsApp OTP disabled)");
+                log.warn("Portal account linked to existing patient record WITHOUT WhatsApp "
+                        + "verification — account-takeover guard is OFF (PORTAL_WHATSAPP_ENABLED=false)");
+                return RegistrationOutcome.CREATED;
+            }
+
+            // Record may contain PHI — prove number ownership via WhatsApp first.
             issueAndSendOtp(account, normalised);
             accountRepository.save(account);
             auditService.logSystemAction(existingPatient.get().getId(),
@@ -257,6 +298,25 @@ public class PatientPortalService {
                 && account.getOtpExpiresAt() != null
                 && account.getOtpExpiresAt().isAfter(LocalDateTime.now())
                 && (account.getOtpAttempts() == null || account.getOtpAttempts() < OTP_MAX_ATTEMPTS);
+    }
+
+    /**
+     * Enable an account without an OTP step (used only when WhatsApp OTP is
+     * disabled for the environment). Clears any pending code and records that the
+     * number was NOT verified, so a later hardening pass can require verification
+     * for these accounts if needed.
+     */
+    private void enableWithoutVerification(PatientAccount account) {
+        account.setEnabled(true);
+        account.setPhoneVerified(false);
+        account.setOtpHash(null);
+        account.setOtpExpiresAt(null);
+        account.setOtpAttempts(0);
+        accountRepository.save(account);
+        auditService.logSystemAction(account.getPatientId(), AuditAction.PORTAL_ACCOUNT_CREATED,
+                "Portal account enabled WITHOUT WhatsApp verification (OTP disabled in this environment)");
+        log.warn("Portal account {} enabled WITHOUT verification — account-takeover guard is OFF "
+                + "(PORTAL_WHATSAPP_ENABLED=false)", account.getId());
     }
 
     /**

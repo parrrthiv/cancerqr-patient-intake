@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.test.util.ReflectionTestUtils;
 import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
@@ -44,6 +45,8 @@ class PatientMessageServiceTest {
     @BeforeEach
     void setUp() {
         service = new PatientMessageService(messageRepository, whatsAppClient, auditService);
+        // @Value isn't injected in a plain Mockito test; default to mirror ON.
+        ReflectionTestUtils.setField(service, "whatsAppEnabled", true);
         doctor = Doctor.builder().id(UUID.randomUUID()).fullName("Dr. Meera Krishnan").build();
         patient = Patient.builder().id(UUID.randomUUID()).whatsappNumber("919876543210").build();
 
@@ -85,6 +88,16 @@ class PatientMessageServiceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> service.sendToPatient(doctor, patient, "x".repeat(PatientMessageService.MAX_BODY_CHARS + 1)));
         verify(messageRepository, never()).save(any());
+        verify(whatsAppClient, never()).sendTextMessage(anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("WhatsApp disabled: message is saved but NOT mirrored (no API call)")
+    void mirrorSkippedWhenDisabled() {
+        ReflectionTestUtils.setField(service, "whatsAppEnabled", false);
+        PatientMessage saved = service.sendToPatient(doctor, patient, "Portal-only message.");
+        assertNotNull(saved.getId());
+        verify(messageRepository).save(any(PatientMessage.class));
         verify(whatsAppClient, never()).sendTextMessage(anyString(), anyString());
     }
 
