@@ -16,7 +16,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -167,6 +170,68 @@ public class AnalysisService {
     }
 
     /**
+     * Patient-safe slice of an analysis: diet + lifestyle guidance only.
+     *
+     * <p>This record (and the builder below) is the SINGLE source of truth for
+     * "what a patient may see before clinician review". The WhatsApp formatter
+     * and the patient portal both consume it — change the exclusion policy here,
+     * never in a template.
+     */
+    public record PatientDietGuidance(
+            List<String> diets,
+            List<String> lifestyles,
+            boolean requiresUrgentReview,
+            String disclaimer
+    ) {}
+
+    /**
+     * Extract the patient-safe diet/lifestyle guidance from an analysis result.
+     *
+     * <p>Fasting is intentionally omitted — it is a medical intervention with
+     * contraindications (underweight, cachexia, severe pain). Medicines / doses /
+     * CBD / herbs / mushrooms / supportive care are excluded entirely: the system
+     * must never deliver treatment suggestions to a patient before a qualified
+     * doctor reviews them.
+     */
+    public PatientDietGuidance buildPatientDietGuidance(AnalysisResult result) {
+        LinkedHashSet<String> diets = new LinkedHashSet<>();
+        LinkedHashSet<String> lifestyles = new LinkedHashSet<>();
+        if (result.getPhysicianProtocols() != null) {
+            for (var p : result.getPhysicianProtocols()) {
+                if (p.getDiet() != null && !p.getDiet().isBlank()) {
+                    diets.add(p.getDiet().trim());
+                }
+                if (p.getLifestyle() != null && !p.getLifestyle().isBlank()) {
+                    lifestyles.add(p.getLifestyle().trim());
+                }
+            }
+        }
+        return new PatientDietGuidance(
+                new ArrayList<>(diets),
+                new ArrayList<>(lifestyles),
+                result.isRequiresUrgentReview(),
+                result.getDisclaimerText());
+    }
+
+    /**
+     * Patient-safe guidance for the portal, recomputed from the patient's current
+     * data via the (deterministic) formula engine. Present only once an analysis
+     * has actually been generated — the portal must not show guidance for an
+     * unfinished intake. Nothing is persisted by this call.
+     */
+    public Optional<PatientDietGuidance> getPatientDietGuidance(UUID patientId) {
+        if (analysisRepository.findFirstByPatientIdOrderByCreatedAtDesc(patientId).isEmpty()) {
+            return Optional.empty();
+        }
+        Patient patient = patientIntakeService.getPatient(patientId);
+        if (!patient.hasBasicInfo()) {
+            return Optional.empty();
+        }
+        AnalysisResult result = formulaEngine.generateAnalysis(createAnalysisInput(patient));
+        return Optional.of(buildPatientDietGuidance(result));
+    }
+
+    /**
      * Patient-facing message sent after intake completes.
      *
      * <p>Deliberately contains ONLY general diet + lifestyle guidance plus a note
@@ -179,6 +244,8 @@ public class AnalysisService {
      * dashboard; this method only changes what the PATIENT sees.
      */
     public String formatPatientDietMessage(AnalysisResult result) {
+        PatientDietGuidance guidance = buildPatientDietGuidance(result);
+
         StringBuilder msg = new StringBuilder();
 
         msg.append("🥗 *YOUR DIET & LIFESTYLE GUIDANCE*\n");
@@ -186,33 +253,16 @@ public class AnalysisService {
         msg.append("Thank you for completing your intake. Below are some general "
                 + "diet and lifestyle suggestions you can begin with.\n\n");
 
-        // Distinct diet + lifestyle strings from the cancer-type protocol matrix.
-        // Fasting is intentionally omitted — it is a medical intervention with
-        // contraindications (underweight, cachexia, severe pain) and should not be
-        // suggested to a patient without clinician oversight.
-        java.util.LinkedHashSet<String> diets = new java.util.LinkedHashSet<>();
-        java.util.LinkedHashSet<String> lifestyles = new java.util.LinkedHashSet<>();
-        if (result.getPhysicianProtocols() != null) {
-            for (var p : result.getPhysicianProtocols()) {
-                if (p.getDiet() != null && !p.getDiet().isBlank()) {
-                    diets.add(p.getDiet().trim());
-                }
-                if (p.getLifestyle() != null && !p.getLifestyle().isBlank()) {
-                    lifestyles.add(p.getLifestyle().trim());
-                }
-            }
-        }
-
-        if (!diets.isEmpty()) {
+        if (!guidance.diets().isEmpty()) {
             msg.append("🍽️ *Dietary focus:*\n");
-            for (String d : diets) {
+            for (String d : guidance.diets()) {
                 msg.append("• ").append(d).append("\n");
             }
             msg.append("\n");
         }
-        if (!lifestyles.isEmpty()) {
+        if (!guidance.lifestyles().isEmpty()) {
             msg.append("🌿 *Lifestyle:*\n");
-            for (String l : lifestyles) {
+            for (String l : guidance.lifestyles()) {
                 msg.append("• ").append(l).append("\n");
             }
             msg.append("\n");

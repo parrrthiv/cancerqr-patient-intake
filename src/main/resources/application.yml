@@ -2,6 +2,16 @@ spring:
   application:
     name: cancer-intake-system
 
+  servlet:
+    multipart:
+      # Patient-portal report uploads. The container limit sits ABOVE the app's
+      # 25 MB MediaValidator cap so the validator (which gives the friendly
+      # error) handles the normal oversize case; only absurdly large bodies hit
+      # this hard limit. NOTE: nginx in front must also allow this
+      # (client_max_body_size 30m) or portal uploads >1 MB will 413 at the proxy.
+      max-file-size: 30MB
+      max-request-size: 35MB
+
   thymeleaf:
     cache: false
     prefix: classpath:/templates/
