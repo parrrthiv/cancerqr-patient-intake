@@ -30,6 +30,12 @@ import java.util.concurrent.ConcurrentMap;
  *   <li>POST {@code /api/dashboard/login} — capped per submitted username.
  *       Stops the obvious password-guessing pattern: same username, thousands
  *       of POSTs.</li>
+ *   <li>POST {@code /api/portal/login} — same per-identifier cap as the staff
+ *       login, keyed on the submitted phone number.</li>
+ *   <li>POST {@code /api/portal/register} — per-IP. Registration can trigger a
+ *       WhatsApp OTP send; this caps mass account creation / OTP spam.</li>
+ *   <li>POST {@code /api/portal/verify} — per-IP outer cap on OTP guessing
+ *       (the service additionally locks each code after 5 wrong attempts).</li>
  * </ul>
  *
  * <p>State is in-memory per instance (Bucket4j ConcurrentHashMap). Acceptable
@@ -58,6 +64,10 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private static final String WEBHOOK_PATH = "/webhook/whatsapp";
     private static final String LOGIN_PATH = "/dashboard/login";
+    // Patient portal public POST surfaces (see SecurityConfig portal chain).
+    private static final String PORTAL_LOGIN_PATH = "/portal/login";
+    private static final String PORTAL_REGISTER_PATH = "/portal/register";
+    private static final String PORTAL_VERIFY_PATH = "/portal/verify";
 
     private static final Bandwidth WEBHOOK_LIMIT =
             Bandwidth.builder().capacity(60).refillIntervally(60, Duration.ofMinutes(1)).build();
@@ -65,8 +75,21 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private static final Bandwidth LOGIN_LIMIT =
             Bandwidth.builder().capacity(5).refillIntervally(5, Duration.ofMinutes(5)).build();
 
+    // Registration triggers a DB write + (for known numbers) a WhatsApp OTP send;
+    // cap per-IP so a script can't mass-create accounts or spam OTP messages.
+    private static final Bandwidth REGISTER_LIMIT =
+            Bandwidth.builder().capacity(10).refillIntervally(10, Duration.ofHours(1)).build();
+
+    // OTP verify: the service already locks the code after 5 wrong attempts;
+    // this per-IP cap is the outer layer against multi-account guessing.
+    private static final Bandwidth VERIFY_LIMIT =
+            Bandwidth.builder().capacity(15).refillIntervally(15, Duration.ofMinutes(5)).build();
+
     private final ConcurrentMap<String, Bucket> webhookBuckets = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Bucket> loginBuckets = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Bucket> portalLoginBuckets = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Bucket> portalRegisterBuckets = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Bucket> portalVerifyBuckets = new ConcurrentHashMap<>();
 
     private final MeterRegistry meterRegistry;
 
@@ -87,6 +110,24 @@ public class RateLimitFilter extends OncePerRequestFilter {
             if (username != null && !username.isBlank()
                     && !allowed(loginBuckets, username, LOGIN_LIMIT)) {
                 rejectWith429(response, "login", 300);
+                return;
+            }
+        } else if ("POST".equalsIgnoreCase(request.getMethod()) && PORTAL_LOGIN_PATH.equals(path)) {
+            // Portal login submits the phone number as the username parameter.
+            String phone = request.getParameter("phone");
+            if (phone != null && !phone.isBlank()
+                    && !allowed(portalLoginBuckets, phone, LOGIN_LIMIT)) {
+                rejectWith429(response, "portal_login", 300);
+                return;
+            }
+        } else if ("POST".equalsIgnoreCase(request.getMethod()) && PORTAL_REGISTER_PATH.equals(path)) {
+            if (!allowed(portalRegisterBuckets, clientIp(request), REGISTER_LIMIT)) {
+                rejectWith429(response, "portal_register", 3600);
+                return;
+            }
+        } else if ("POST".equalsIgnoreCase(request.getMethod()) && PORTAL_VERIFY_PATH.equals(path)) {
+            if (!allowed(portalVerifyBuckets, clientIp(request), VERIFY_LIMIT)) {
+                rejectWith429(response, "portal_verify", 300);
                 return;
             }
         }

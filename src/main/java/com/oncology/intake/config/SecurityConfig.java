@@ -1,13 +1,14 @@
 package com.oncology.intake.config;
 
+import com.oncology.intake.entity.Doctor.PhysicianDomain;
 import com.oncology.intake.security.DoctorUserDetailsService;
+import com.oncology.intake.security.PatientAccountDetailsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
-import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.HeadersConfigurer;
@@ -24,37 +25,49 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Spring Security configuration.
+ * Spring Security configuration — TWO independent filter chains:
  *
- * Auth model:
- *  - The dashboard is locked behind form login backed by {@link DoctorUserDetailsService}.
- *    Spring Security does the auth check before any controller runs — adding a new
- *    /dashboard/* route does NOT need a manual session check; it's protected by default.
- *  - Public surfaces (must remain reachable without login):
- *      /webhook/whatsapp/**     — Meta posts here
- *      /actuator/health, /info  — for ALB / nginx health checks
- *      /dashboard/login          — the login form itself
- *      static assets
- *  - Roles map 1:1 from {@code Doctor.PhysicianDomain}: ROLE_ADMIN, ROLE_REFERRING_DOCTOR,
- *    ROLE_MEDICAL_ONCOLOGY, ...
+ * <pre>
+ *   Order 1:  /portal/**   — PATIENT-facing portal. Form login backed by
+ *                            {@link PatientAccountDetailsService}; principal is
+ *                            PatientPortalPrincipal with the single role
+ *                            ROLE_PATIENT. Public: /portal/login, /portal/register,
+ *                            /portal/verify (registration + WhatsApp-OTP step).
+ *   Order 2:  everything   — staff dashboard + webhook + actuator. Form login
+ *                            backed by {@link DoctorUserDetailsService}.
+ * </pre>
+ *
+ * <h2>Role isolation (the multi-chain pitfall, handled)</h2>
+ * The HTTP session holds ONE Authentication regardless of which chain created
+ * it. If the staff chain kept {@code .anyRequest().authenticated()}, a
+ * logged-in PATIENT navigating to {@code /dashboard/**} would pass — Spring
+ * only checks "is authenticated", not "authenticated as whom". Therefore the
+ * staff chain now requires one of the {@link PhysicianDomain} roles
+ * ({@code hasAnyRole(STAFF_ROLES)}) on every protected route, and the portal
+ * chain requires ROLE_PATIENT. A patient session gets 403 on the dashboard; a
+ * doctor session gets 403 on the portal.
+ *
+ * <h2>Authentication providers</h2>
+ * Each chain registers exactly one DaoAuthenticationProvider (doctor vs
+ * patient), so doctor credentials can never authenticate at the portal login
+ * and vice versa. With two UserDetailsService beans in the context, Spring's
+ * global-manager auto-configuration backs off — intentionally; there is no
+ * shared AuthenticationManager bean.
  *
  * Passwords:
  *  - {@link PasswordEncoderFactories#createDelegatingPasswordEncoder()} encodes new
  *    passwords with bcrypt and accepts {@code {noop}}, {@code {bcrypt}}, etc. for
- *    verification. Legacy plaintext rows are migrated to {@code {noop}<plaintext>}
- *    by V4__prefix_legacy_passwords.sql and are auto-upgraded to {@code {bcrypt}}
- *    on the next successful login.
+ *    verification. Legacy plaintext doctor rows are migrated to {@code {noop}<plaintext>}
+ *    by V4__prefix_legacy_passwords.sql and auto-upgrade to {@code {bcrypt}} on the
+ *    next successful login. Patient accounts are bcrypt from day one.
  *
  * CSRF:
- *  - Enabled for everything except {@code /webhook/whatsapp/**} (Meta posts JSON,
- *    can't supply our token) and {@code /admin/test/**} (dev-only test endpoint
- *    driven by curl). Every dashboard form template was audited to use
- *    {@code th:action} — Thymeleaf-Spring Security integration auto-injects
- *    the {@code _csrf} hidden input on render.
- *  - Uses {@link CsrfTokenRequestAttributeHandler} (the plain handler) instead
- *    of Spring Security 6's default XOR variant. The XOR handler can confuse
- *    Thymeleaf form rendering in MVC apps; the plain handler is the documented
- *    compat path for traditional form-based flows.
+ *  - Enabled on both chains with the plain {@link CsrfTokenRequestAttributeHandler}
+ *    (Spring Security 6's XOR default can mismatch Thymeleaf-rendered hidden
+ *    inputs). Excluded only for {@code /webhook/whatsapp/**} (Meta posts JSON,
+ *    can't supply our token — HMAC is the auth) and {@code /admin/test/**}
+ *    (dev-only, curl-driven). Every form template uses {@code th:action}, which
+ *    auto-injects the {@code _csrf} hidden input on render.
  */
 @Configuration
 @EnableWebSecurity
@@ -62,16 +75,72 @@ import java.util.List;
 public class SecurityConfig {
 
     private final DoctorUserDetailsService doctorUserDetailsService;
+    private final PatientAccountDetailsService patientAccountDetailsService;
+
+    /**
+     * Every staff role name (= {@link PhysicianDomain} enum names). Used instead
+     * of {@code authenticated()} so a ROLE_PATIENT session is rejected on staff
+     * surfaces — see class javadoc.
+     */
+    private static final String[] STAFF_ROLES = Arrays.stream(PhysicianDomain.values())
+            .map(Enum::name)
+            .toArray(String[]::new);
 
     /** Comma-separated list of origins allowed to call the dashboard (CORS). */
     @Value("${app.cors.allowed-origins:http://localhost:8080}")
     private String allowedOrigins;
 
+    // ── Chain 1: patient portal ─────────────────────────────────────────
+
     @Bean
+    @Order(1)
+    public SecurityFilterChain portalFilterChain(HttpSecurity http) throws Exception {
+        CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
+
+        http
+            .securityMatcher("/portal/**")
+
+            .csrf(csrf -> csrf.csrfTokenRequestHandler(csrfHandler))
+
+            .authorizeHttpRequests(auth -> auth
+                // public: login page/POST, registration, and the OTP verify step
+                .requestMatchers("/portal/login", "/portal/register", "/portal/verify").permitAll()
+                // everything else on the portal needs a PATIENT session
+                .anyRequest().hasRole("PATIENT")
+            )
+
+            .formLogin(form -> form
+                .loginPage("/portal/login")
+                .loginProcessingUrl("/portal/login")
+                .usernameParameter("phone")
+                .passwordParameter("password")
+                .defaultSuccessUrl("/portal", true)
+                .failureUrl("/portal/login?error")
+                .permitAll()
+            )
+
+            .logout(logout -> logout
+                .logoutUrl("/portal/logout")
+                .logoutSuccessUrl("/portal/login?logout")
+                .invalidateHttpSession(true)
+                .deleteCookies("JSESSIONID")
+                .permitAll()
+            )
+
+            .authenticationProvider(patientAuthenticationProvider());
+
+        applySharedSessionPolicy(http);
+        applySharedHeaders(http);
+
+        return http.build();
+    }
+
+    // ── Chain 2: staff dashboard / webhook / actuator (catch-all) ───────
+
+    @Bean
+    @Order(2)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        // Plain CSRF token handler — see class javadoc. Spring Security 6's default
-        // (XorCsrfTokenRequestAttributeHandler) can mismatch with Thymeleaf-rendered
-        // hidden inputs; this one matches the form-injected value byte-for-byte.
+        // Plain CSRF token handler — see class javadoc.
         CsrfTokenRequestAttributeHandler csrfHandler = new CsrfTokenRequestAttributeHandler();
 
         http
@@ -102,11 +171,13 @@ public class SecurityConfig {
                 .requestMatchers("/dashboard/patients/add")
                     .hasRole("REFERRING_DOCTOR")
 
-                // everything else under /dashboard requires a logged-in doctor
-                .requestMatchers("/dashboard/**").authenticated()
+                // everything else under /dashboard requires a STAFF login —
+                // NOT merely "authenticated" (a patient session is authenticated
+                // too; see class javadoc on role isolation).
+                .requestMatchers("/dashboard/**").hasAnyRole(STAFF_ROLES)
 
-                // anything not explicitly listed: deny by default
-                .anyRequest().authenticated()
+                // anything not explicitly listed: staff only, deny patients by role
+                .anyRequest().hasAnyRole(STAFF_ROLES)
             )
 
             .formLogin(form -> form
@@ -127,13 +198,28 @@ public class SecurityConfig {
                 .permitAll()
             )
 
-            .sessionManagement(session -> session
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+
+            .authenticationProvider(daoAuthenticationProvider());
+
+        applySharedSessionPolicy(http);
+        applySharedHeaders(http);
+
+        return http.build();
+    }
+
+    // ── Shared policy fragments ─────────────────────────────────────────
+
+    private void applySharedSessionPolicy(HttpSecurity http) throws Exception {
+        http.sessionManagement(session -> session
                 .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
                 .sessionFixation(s -> s.migrateSession())
                 .maximumSessions(1)
-            )
+        );
+    }
 
-            .headers(headers -> headers
+    private void applySharedHeaders(HttpSecurity http) throws Exception {
+        http.headers(headers -> headers
                 .frameOptions(HeadersConfigurer.FrameOptionsConfig::sameOrigin)
                 .contentSecurityPolicy(csp -> csp.policyDirectives(
                         "default-src 'self'; " +
@@ -146,14 +232,10 @@ public class SecurityConfig {
                 .httpStrictTransportSecurity(hsts -> hsts
                         .includeSubDomains(true)
                         .maxAgeInSeconds(31_536_000))
-            )
-
-            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-
-            .authenticationProvider(daoAuthenticationProvider());
-
-        return http.build();
+        );
     }
+
+    // ── Beans ───────────────────────────────────────────────────────────
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -171,8 +253,12 @@ public class SecurityConfig {
     }
 
     @Bean
-    public AuthenticationManager authenticationManager(AuthenticationConfiguration cfg) throws Exception {
-        return cfg.getAuthenticationManager();
+    public DaoAuthenticationProvider patientAuthenticationProvider() {
+        DaoAuthenticationProvider p = new DaoAuthenticationProvider();
+        p.setUserDetailsService(patientAccountDetailsService);
+        p.setPasswordEncoder(passwordEncoder());
+        // No password-upgrade service: patient passwords are bcrypt from creation.
+        return p;
     }
 
     @Bean

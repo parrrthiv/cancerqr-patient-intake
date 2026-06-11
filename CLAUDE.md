@@ -2,6 +2,68 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+---
+
+# CURRENT STATE — READ FIRST ON RESUME (updated 2026-05-20)
+
+## Where we are
+PRs 9–17 (security/efficiency hardening) are **committed and pushed** to `parrrthiv/cancerqr-patient-intake` (`main`) but **NOT yet deployed** to EC2. The EC2 box is currently running the **OLD pre-PR-9 image** (`cancerqr-app:latest` = image id `deae87f40697`). The deploy/swap is mid-flight.
+
+## Immediate next task: deploy PRs 9–17 to the test EC2
+Testing happens ON EC2 — there is no local test environment. Resume sequence:
+
+1. RDS snapshot already taken: `pre-pr17-20260519` (verify it shows `available`).
+2. SSH in: `ssh -i cancerqr-tuf.pem ubuntu@<CURRENT-public-ip>` (IP changes on stop/start — re-check it). With the OLD `cancerqr` container still running:
+   - Backup env vars: `docker inspect cancerqr --format '{{json .Config.Env}}' > ~/env-backup-$(date +%Y%m%d).json` — confirm non-empty (this failed once already because the container had been removed first).
+   - Tag rollback target: `docker tag cancerqr-app:latest cancerqr-app:pre-pr17`
+   - Generate and SAVE a new `PHI_HMAC_KEY`: `openssl rand -base64 32`
+   - `cd ~/cancerqr-patient-intake && git pull origin main && docker build -t cancerqr-app:latest .`
+   - Swap: `docker stop cancerqr && docker rm cancerqr`, then `docker run -d --name cancerqr --restart unless-stopped -p 8080:8080 ...` with ALL env vars taken from the backup PLUS the new `-e PHI_HMAC_KEY=...`. The only new flag vs. the previous run is `PHI_HMAC_KEY`. (Reuse the exact `SPRING_PROFILES_ACTIVE` value from the backup — do not guess `prod` vs `production`.)
+3. Watch `docker logs -f cancerqr` for the 7 verification lines (below).
+4. End-to-end test: WhatsApp intake → upload a report → `/api/dashboard/reports/phi-review` shows it PENDING → Approve → confirm report becomes visible to tumor board; flag-for-redaction keeps it out.
+
+## CRITICAL WARNINGS
+- **V7 migration WIPES all patient data** (`final_protocols`, `tumor_board_reviews`, `analyses`, `reports`, `patients`, in that order). This was the user's explicit decision — no backfill. Test RDS only.
+- **`PHI_HMAC_KEY` is a NEW required production env var** (PR 10). App fails fast on startup without it. Store it alongside `PHI_ENCRYPTION_KEY`.
+- **Losing `PHI_ENCRYPTION_KEY` = permanent loss of all encrypted PHI.** Recover from the password manager before any teardown.
+- **Secrets pasted in an earlier chat are COMPROMISED and must be rotated**: `WHATSAPP_ACCESS_TOKEN`, `DB_PASSWORD`, and the previously-used `PHI_ENCRYPTION_KEY` value. Do not reuse long-term.
+- **On EC2 the container is named `cancerqr`** (not `cancerqr-app`); the image is `cancerqr-app:latest`.
+- **EC2 public IP changes on every stop/start.** Re-check via console/CloudShell before SSH. Last seen: `13.235.181.126`.
+- **App context path is `/api`** — health is at `/api/actuator/health`, login at `/api/dashboard/login`. Earlier 404s came from omitting the `/api` prefix. Use `docker ps` + `GET /api/dashboard/login` to confirm liveness.
+
+## Verification — 7 startup log lines that confirm PRs 9–17 are healthy
+```
+Migrating schema "public" to version "7"
+Migrating schema "public" to version "8"
+Migrating schema "public" to version "9"
+Successfully validated 9 migrations
+PHI encryptor initialised (AES-256-GCM, key id=<8 hex>)
+WhatsApp number hasher initialised (HMAC-SHA256, key id=<8 hex>)
+Started IntakeApplication in N.NN seconds
+```
+
+## Rollback
+App-only: re-run the old env vars (without `PHI_HMAC_KEY`) on image `cancerqr-app:pre-pr17`. BUT once V7–V9 have run, the old image's Flyway refuses to start (version/checksum mismatch) — so a true rollback also requires restoring RDS from snapshot `pre-pr17-20260519`.
+
+## AWS resources (region ap-south-1)
+NOTE: migrated to a NEW AWS account (free credits) ~2026-06; OLD account DECOMMISSIONED
+2026-06 (all resources deleted). Non-secret values below; secrets live in
+`cancerqr-new-account-values.md` (local, not committed). DB name/user changed to
+`cancerqr` / `cancerqr_db`.
+| Resource | ID / name |
+|---|---|
+| AWS account | `822725963424` |
+| EC2 | `i-0356247845a6873b0` ("cancerqr-webserver") |
+| Elastic IP | `3.7.180.174` |
+| RDS | `cancerqr-db.ch62wekoa00z.ap-south-1.rds.amazonaws.com` (db `cancerqr`, user `cancerqr_db`) |
+| S3 | `cancerqr-files` |
+| Public URL | `https://testapi.cancerqr.com` |
+| Working repo (fork) | `parrrthiv/cancerqr-patient-intake` |
+| Upstream repo | `vineetrk/cancerqr-intake-system` |
+| Cost mgmt | CloudShell `~/start-cancerqr.sh` / `~/stop-cancerqr.sh` |
+
+---
+
 # ROLE
 
 You are acting as:
@@ -241,6 +303,40 @@ DashboardController  (/api/dashboard/*)
     └─► CancerQRProtocolConfig  (cancerqr-protocols.yml)
 ```
 
+## Request flow — patient portal (web, no WhatsApp required)
+
+```
+Browser (mobile-first Thymeleaf, CSRF-enabled forms)
+    │  HTTPS via nginx → DEDICATED Spring Security chain for /portal/** (@Order(1))
+    ▼
+PatientPortalController  (/api/portal/*)
+    │  Login: phone + password (PatientAccountDetailsService → PatientPortalPrincipal,
+    │         single role ROLE_PATIENT). Public: /portal/login, /portal/register, /portal/verify.
+    │  IDOR-proof by construction: every handler resolves the patient ONLY from the
+    │  session principal — no patient id is ever accepted from the request.
+    │
+    ├─► PatientPortalService
+    │     ├─ Registration. Account-takeover guard: a number that already has a
+    │     │  patient record (WhatsApp-created, may hold PHI) gets a DISABLED account
+    │     │  until a 6-digit code sent to that number ON WHATSAPP is confirmed
+    │     │  (SHA-256-hashed OTP, 10 min expiry, 5 attempts). Brand-new numbers
+    │     │  register directly (empty record — nothing to take over).
+    │     ├─ Web intake wizard driving the SAME ConversationState machine as the
+    │     │  bot (consent → details(+referral code) → PET upload → blood upload),
+    │     │  reusing PatientIntakeService, MediaValidator, storeReport(Path) and
+    │     │  the atomic advanceStateIfCurrent step-claim. Patients can switch
+    │     │  channels (WhatsApp ↔ web) mid-intake.
+    │     └─ Completion = same sequence as the WhatsApp flow (analysis → tumor
+    │        board tasks → RESULT_SENT), minus the WhatsApp sends.
+    └─► PatientMessageService  (doctor → patient messages; portal inbox is the
+          source of truth, mirrored to WhatsApp best-effort; doctors send from
+          the patient-review page, gated by PatientAccessService)
+
+Patients see ONLY: their own status/progress, diet+lifestyle guidance
+(AnalysisService.PatientDietGuidance — the single source of truth for
+patient-safe content; NO medicines pre-review), and care-team messages.
+```
+
 App context path is `/api`. All routes below relative to `/api`.
 
 ## Key components
@@ -255,7 +351,8 @@ App context path is `/api`. All routes below relative to `/api`.
 | `FormulaEngine` | Loads `formula-rules.yml` once at `@PostConstruct`. Computes derived metrics + 5 categories of recommendations + alerts. |
 | `TumorBoardService` | Per-domain review queue. `getUnassignedReviewsForDomain` uses indexed SQL (was `findAll().stream().filter(...)`). Static helper `buildReviewStatus(reviews)` lets callers compute status without re-querying. |
 | `PatientAccessService` | Single source of truth for "can doctor X see patient Y / report Z." ADMIN sees all; REFERRING_DOCTOR sees only their own; 8 tumor-board domains see patients with at least one review on file. |
-| `PhiEncryptor` + `EncryptedStringConverter` | AES-256-GCM column encryption. Versioned `{enc:v1}` prefix supports rotation; absence-of-prefix = legacy plaintext (graceful migration). Currently applied to `Patient.name`, `Doctor.fullName/email/phone`. |
+| `PhiEncryptor` + `EncryptedStringConverter` | AES-256-GCM column encryption. Multi-key: reads `PHI_ENCRYPTION_KEY` (back-compat v1) and `PHI_ENCRYPTION_KEY_V1..V20`; writes under the highest-numbered key (`{enc:v<N>}`), decrypts any version; absence-of-prefix = legacy plaintext (graceful migration). Applied to `Patient.name/whatsappNumber`, numeric PHI (`weightKg`, `painScale`, `effectivePainScale`, `esrValue`, `crpValue`, `cancerStage` via `EncryptedBigDecimalConverter`/`EncryptedIntegerConverter`), and `Doctor.fullName/email/phone`. Rotation driven by `PhiRotationController` (`/admin/phi/state`, `/admin/phi/rotate`). |
+| `WhatsAppNumberHasher` + `PatientHashListener` | HMAC-SHA256 of the normalised WhatsApp number → `patients.whatsapp_number_hash` (unique). Lets `findByWhatsappNumberHash` do equality lookups against the encrypted column. JPA `@PrePersist/@PreUpdate` listener computes the hash. Fails fast in prod if `PHI_HMAC_KEY` unset. |
 | `DoctorPrincipal` + `DoctorUserDetailsService` | Spring Security UserDetails wrapping Doctor. `DelegatingPasswordEncoder` (bcrypt + noop legacy) auto-upgrades on login. |
 | `AsyncConfig` | `@EnableAsync` lives here (not on main app class) so `AsyncUncaughtExceptionHandler` can wire in. Increments `async.errors{method=...}` Micrometer counter on every uncaught async exception. |
 
@@ -272,7 +369,8 @@ App context path is `/api`. All routes below relative to `/api`.
 | `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN` | Meta WhatsApp Business Cloud API |
 | `WHATSAPP_WEBHOOK_SECRET` | Meta App Secret. HMAC-verifies inbound webhooks. Empty = verification skipped (dev only). |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated list of allowed origins, e.g. `https://testapi.cancerqr.com`. Never `*` with credentials. |
-| `PHI_ENCRYPTION_KEY` | Base64 32-byte AES-256 key. Generate with `openssl rand -base64 32`. **Loss = permanent loss of every encrypted PHI value.** |
+| `PHI_ENCRYPTION_KEY` | Base64 32-byte AES-256 key (treated as v1). Generate with `openssl rand -base64 32`. **Loss = permanent loss of every encrypted PHI value.** |
+| `PHI_HMAC_KEY` | Base64 32-byte HMAC-SHA256 key for the WhatsApp-number lookup hash (PR 10). Generate with `openssl rand -base64 32`. App fails to start in production without it. **Loss = cannot look up patients by WhatsApp number.** |
 
 ## Optional / not used in production
 
@@ -283,6 +381,7 @@ App context path is `/api`. All routes below relative to `/api`.
 | `ANTHROPIC_API_KEY`, `AI_VERIFICATION_ENABLED` | Optional Claude review of generated analyses. |
 | `H2_CONSOLE_ENABLED` | Defaults to `false`. Never enable in production. |
 | `SESSION_COOKIE_SECURE` | Forced to `true` by the production profile. Override only when debugging over plain HTTP locally. |
+| `PHI_ENCRYPTION_KEY_V1` … `_V20` | Additional AES-256 keys for rotation (PR 12). Highest-numbered configured key becomes the write key; all configured keys stay available for decrypt. Leave unset until rotating. |
 
 ## Removed / dead env vars (do NOT set)
 
@@ -290,7 +389,7 @@ App context path is `/api`. All routes below relative to `/api`.
 
 ---
 
-# SECURITY POSTURE (post PR 1–8)
+# SECURITY POSTURE (post PR 1–17)
 
 What's wired and how to keep it that way:
 
@@ -303,9 +402,14 @@ What's wired and how to keep it that way:
 - **Headers**: HSTS (1 year, includeSubDomains), CSP (`default-src 'self'`, inline scripts/styles allowed for current Tailwind CDN templates).
 - **CORS**: Pinned via `CORS_ALLOWED_ORIGINS`. Never `*`.
 - **Upload validation**: `MediaValidator` enforces MIME whitelist + magic bytes + size cap before storage. Download endpoint forces `Content-Disposition: attachment` + `nosniff` + `application/octet-stream`.
-- **At rest**: S3 PutObject with `AES256` SSE. RDS encryption-at-rest enabled at instance level. AES-256-GCM column encryption on the four PHI String fields listed above.
+- **At rest**: S3 PutObject with `AES256` SSE. RDS encryption-at-rest enabled at instance level. AES-256-GCM column encryption (multi-key, rotatable) on PHI columns: `Patient.name/whatsappNumber`, numeric PHI (`weightKg`, `painScale`, `effectivePainScale`, `esrValue`, `crpValue`, `cancerStage`), and `Doctor.fullName/email/phone`. WhatsApp number additionally HMAC-SHA256 hashed for equality lookups.
 - **Logging**: PHI-safe at INFO. Cancer stage, ESR, CRP, pain values, names, full phone numbers all moved to TRACE or removed. Phone numbers in INFO logs are masked (`first4****last4`).
-- **Observability**: Micrometer counters on the webhook flow + async errors. Available at `/api/actuator/metrics/<name>`.
+- **Observability**: Micrometer counters on the webhook flow + async errors + rate-limit rejections. Available at `/api/actuator/metrics/<name>`.
+- **Rate limiting** (PR 16): `RateLimitFilter` (Bucket4j, highest filter precedence) — 60 req/min per IP on the webhook, 5 login attempts / 5 min per username; returns 429 + `Retry-After`. Parses `X-Forwarded-For`.
+- **PHI redaction review** (PR 13): every uploaded report starts `PENDING` and is hidden from tumor-board reviewers until an ADMIN marks it `APPROVED` (or `REDACTION_NEEDED`) via `/dashboard/reports/phi-review`.
+- **Async safety** (PR 17): PDF extraction runs fire-and-forget via `ReportDataExtractionAsyncRunner` (a separate bean so the `@Async` proxy applies) — no PDF parsing on the request thread.
+- **Patient portal isolation** (patient-portal PR): TWO security filter chains. `/portal/**` (@Order(1)) authenticates patients (ROLE_PATIENT via `PatientAccountDetailsService`); the staff chain now requires `hasAnyRole(<PhysicianDomain names>)` instead of bare `authenticated()` — otherwise a patient session would satisfy `/dashboard/**`. NEVER revert the staff chain to `.anyRequest().authenticated()`; `PortalSecurityIntegrationTest` locks this in. Portal rate limits in `RateLimitFilter`: login per-phone 5/5min, register per-IP 10/h, verify per-IP 15/5min. Portal accounts: bcrypt passwords, encrypted phone + HMAC hash lookup (same pattern as `Patient.whatsappNumber`).
+- **Portal WhatsApp toggle** `app.portal.whatsapp-enabled` (env `PORTAL_WHATSAPP_ENABLED`, default `true`): gates the portal's account-takeover OTP AND the doctor→patient WhatsApp message mirror. `false` on the test box (WhatsApp API in dev mode can't deliver to arbitrary testers) → existing-record registration links the account WITHOUT ownership proof, and messages are portal-only. The web intake flow needs no WhatsApp regardless. **Must be `true` in production** (see go-live item 0a). Gating lives in `PatientPortalService.register` and `PatientMessageService.mirrorToWhatsApp`.
 
 ---
 
@@ -342,23 +446,54 @@ Migration history (current):
 - `V4__prefix_legacy_passwords.sql` — `{noop}` prefix for backward-compat with BCrypt
 - `V5__add_referring_doctor_index.sql` — index on `patients.referring_doctor_id`
 - `V6__widen_phi_columns_for_encryption.sql` — `name`, `full_name`, `email`, `phone` → `VARCHAR(500)`
+- `V7__encrypt_whatsapp_number.sql` (PR 10) — **DESTRUCTIVE**: deletes all patient-related rows, drops FK/unique constraints, widens `whatsapp_number` to `VARCHAR(500)`, adds `whatsapp_number_hash VARCHAR(64) NOT NULL` + unique index
+- `V8__encrypt_numeric_phi.sql` (PR 11) — alters `weight_kg`, `pain_scale`, `effective_pain_scale`, `esr_value`, `crp_value`, `cancer_stage` to `VARCHAR(500)` via `USING ::TEXT` (now hold ciphertext)
+- `V9__add_phi_review_to_reports.sql` (PR 13) — adds `phi_review_status VARCHAR(30) NOT NULL DEFAULT 'PENDING'`, `phi_reviewed_by_doctor_id UUID`, `phi_reviewed_at TIMESTAMP`, index on `phi_review_status`
+- `V10__patient_portal.sql` (patient portal) — adds `patient_accounts` (portal login: encrypted phone + HMAC `phone_hash`, bcrypt password, WhatsApp-OTP columns) and `patient_messages` (doctor → patient, encrypted body)
 
-When adding a migration: increment the V number. NEVER edit a migration that's already been applied to production.
+When adding a migration: increment the V number. NEVER edit a migration that's already been applied to production. NOTE: V7–V9 have NOT yet been applied to the test RDS — they run on the next deploy.
 
 ---
 
 # DEFERRED WORK (call out explicitly when this surface comes up)
 
-These are real projects, not one-line fixes:
+Done since the original list (do NOT re-do):
+- Encrypt `Patient.whatsappNumber` + HMAC hash lookup — done in PR 10
+- Encrypt numeric PHI — done in PR 11
+- PDFBox extraction off the request thread — done in PR 17 (`ReportDataExtractionAsyncRunner`)
+- Hibernate batch fetch — done in PR 9
+- PHI key rotation (multi-key) — done in PR 12
+- Streaming uploads (C7) — done (temp-file Path end-to-end: `DataBufferUtils.write` download, `MediaValidator.validate(Path)`, `RequestBody.fromFile` to S3, streamed checksum)
+- Patient portal — done (web intake + status + doctor→patient messages; see "Request flow — patient portal")
 
-1. **Encrypt `Patient.whatsappNumber`** — needs companion `whatsapp_number_hash` (HMAC-SHA256) column for `findByWhatsappNumber` lookups + data backfill migration. Hot path on every inbound webhook.
-2. **Encrypt numeric PHI** (`weightKg`, `esrValue`, `crpValue`, `effectivePainScale`, `painScale`, `cancerStage`) — needs `BigDecimal`/`Integer` JPA converters and an audit of every place these flow into formula calculations and templates.
-3. **Streaming uploads** — `StorageService.storeFile` reads whole files into heap before sending to S3. With 25 MB cap × concurrent uploads × multiple buffers, t3.small can OOM. Refactor to `RequestBody.fromInputStream(...)`.
-4. **PDFBox sync extraction inside the request thread** — `ReportDataExtractionService` runs PDF parsing inside `/dashboard/patient/{id}` render. Move to `@Async` post-upload, persist results.
-5. **Hibernate batch fetch** — every dashboard render still re-hits DB for `reports`/`analyses` collections. Set `spring.jpa.properties.hibernate.default_batch_fetch_size=20`.
-6. **Key rotation for PHI encryption** — currently single-key. To rotate, `PhiEncryptor` needs to support `{enc:v2}` writes under a new key while still decrypting `{enc:v1}` rows; plus a sweep job that re-saves every row.
+Still open (real projects, not one-line fixes):
 
-When working on adjacent code, prefer creating a focused PR for one of these over bundling.
+0. **Portal go-live hardening** —
+   (a) **Re-enable `PORTAL_WHATSAPP_ENABLED=true` (CRITICAL).** The test box runs with it
+   `false` because the WhatsApp Business API is in development mode and can't deliver OTPs
+   to non-allowlisted testers. While false, the account-takeover guard is OFF: registering
+   a number that already has a (possibly PHI-bearing) patient record links a portal login
+   to it WITHOUT proving ownership, and doctor→patient messages are not mirrored to
+   WhatsApp. The default is `true`; go-live must NOT carry the test override.
+   (b) SMS OTP for NEW-number portal registrations: even with WhatsApp OTP on, a brand-new
+   number registers without ownership proof (nothing to take over yet), but if that person
+   later uses the WhatsApp bot, the portal registrant could read the WhatsApp-collected
+   data. Existing records are protected by the WhatsApp-OTP link flow (when enabled).
+   (c) nginx: `client_max_body_size 30m;` for `/api/portal/` — the default 1 MB cap will
+   413 portal report uploads at the proxy (WhatsApp uploads never hit nginx, so this
+   never surfaced before).
+2. **Resilience4j circuit breaker** (C11) — outbound WhatsApp/Claude calls have timeouts but no breaker; a sustained Meta outage ties up threads. Add a breaker around `WhatsAppClientService`.
+3. **LICENSE file** (C19) — repo has none; needs a license decision from the user (proprietary vs OSS) before adding.
+4. **More tests / e2e** (C22) — PR 14 added unit tests for the security layer; still missing controller-level and end-to-end coverage.
+5. **PHI redaction stage 2** — PR 13 shipped the human-review queue (`PENDING/APPROVED/REDACTION_NEEDED/REDACTED`). Automated detection (Textract + Comprehend Medical) and actual pixel-level redaction are future work.
+
+AWS-side (cannot be done from code — user action in console/CloudShell):
+- Secrets Manager for env vars (currently passed via `docker run -e`), S3 versioning, RDS restore-test drill, off-box backup of `PHI_ENCRYPTION_KEY`/`PHI_HMAC_KEY`, log shipping (CloudWatch), metric shipping, CI/CD pipeline.
+
+Legal/compliance (tracked separately from coding — Indian regulatory):
+- NMC registration verification for reviewing physicians, parental consent flow for minors, published privacy policy, designated DPO, breach-notification procedure, SaMD classification with CDSCO. (DPDPA, Telemedicine Practice Guidelines 2020, IT Rules 2011.)
+
+When working on adjacent code, prefer creating a focused PR for one of the open items over bundling.
 
 ---
 

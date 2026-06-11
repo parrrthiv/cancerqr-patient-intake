@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CancerQR - Messages</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <nav class="bg-white shadow">
+        <div class="max-w-3xl mx-auto px-4 py-4 flex justify-between items-center">
+            <a th:href="@{/portal}" class="text-xl font-bold text-teal-700">💙 CancerQR</a>
+            <form th:action="@{/portal/logout}" method="post" class="inline">
+                <button type="submit" class="text-sm text-gray-500 hover:text-gray-700">Sign out</button>
+            </form>
+        </div>
+    </nav>
+
+    <div class="max-w-3xl mx-auto px-4 py-6 space-y-6">
+        <a th:href="@{/portal}" class="inline-flex items-center text-teal-700 hover:text-teal-900 text-sm">← Back to my care</a>
+
+        <h1 class="text-2xl font-bold text-gray-800">✉️ Messages from your care team</h1>
+
+        <div th:if="${messages == null or messages.isEmpty()}" class="bg-white rounded-xl shadow-md p-8 text-center">
+            <p class="text-gray-500">No messages yet.</p>
+            <p class="text-sm text-gray-400 mt-1">When your care team writes to you, it will appear here.</p>
+        </div>
+
+        <div th:each="m : ${messages}" class="bg-white rounded-xl shadow-md p-5">
+            <div class="flex items-center justify-between mb-2">
+                <span class="font-semibold text-gray-800 text-sm">
+                    👨‍⚕️ <span th:text="${m.doctor != null ? m.doctor.fullName : 'Care team'}">Doctor</span>
+                </span>
+                <span class="flex items-center space-x-2">
+                    <span th:if="${m.readAt == null}"
+                          class="bg-teal-100 text-teal-800 text-xs font-bold px-2 py-0.5 rounded-full">NEW</span>
+                    <span class="text-xs text-gray-400"
+                          th:text="${#temporals.format(m.createdAt, 'dd MMM yyyy HH:mm')}">date</span>
+                </span>
+            </div>
+            <p class="text-gray-700 text-sm whitespace-pre-line" th:text="${m.body}">Message body</p>
+        </div>
+
+        <p class="text-xs text-gray-400 text-center">
+            These messages are from your clinical team. For emergencies, contact your local
+            emergency services — do not wait for a reply here.
+        </p>
+    </div>
+</body>
+</html>

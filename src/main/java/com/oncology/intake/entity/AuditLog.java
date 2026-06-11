@@ -111,6 +111,12 @@ public class AuditLog {
         WHATSAPP_MESSAGE_SENT,
         WHATSAPP_MEDIA_RECEIVED,
         WHATSAPP_WEBHOOK_RECEIVED,
+
+        // Patient portal events
+        PORTAL_ACCOUNT_CREATED,
+        PORTAL_ACCOUNT_VERIFIED,
+        PATIENT_MESSAGE_SENT,
+        PATIENT_MESSAGE_READ,
         
         // Security events
         AUTHENTICATION_SUCCESS,

@@ -10,6 +10,7 @@ import com.oncology.intake.security.PatientAccessService;
 import com.oncology.intake.security.WhatsAppNumberHasher;
 import com.oncology.intake.service.AuditService;
 import com.oncology.intake.service.PatientIntakeService;
+import com.oncology.intake.service.PatientMessageService;
 import com.oncology.intake.service.ReportDataExtractionAsyncRunner;
 import com.oncology.intake.service.StorageService;
 import com.oncology.intake.service.TumorBoardService;
@@ -76,6 +77,7 @@ public class DashboardController {
     private final AuditService auditService;
     private final PatientAccessService patientAccessService;
     private final WhatsAppNumberHasher whatsAppNumberHasher;
+    private final PatientMessageService patientMessageService;
 
     private static final String REFERRAL_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -153,6 +155,12 @@ public class DashboardController {
                     doctor.getId(), doctor.getDomain(), patientId);
             return "redirect:/dashboard";
         }
+
+        // Message history (doctor → patient) for the messaging card; both the
+        // referring-doctor view and the board view render it.
+        model.addAttribute("patientMessages",
+                patientMessageService.messagesForPatient(patientId));
+        model.addAttribute("maxMessageChars", PatientMessageService.MAX_BODY_CHARS);
 
         if (doctor.getDomain() == PhysicianDomain.REFERRING_DOCTOR) {
             // Referring doctors get the read-only view (no protocol selection forms).
@@ -324,6 +332,36 @@ public class DashboardController {
 
         redirectAttributes.addFlashAttribute("success", "Review submitted successfully!");
         return "redirect:/dashboard";
+    }
+
+    /**
+     * Send a message to the patient (shown in the patient portal, mirrored to
+     * WhatsApp best-effort). Authorization mirrors every other per-patient
+     * route: the doctor must pass {@code PatientAccessService.canViewPatient}.
+     */
+    @PostMapping("/patient/{patientId}/message")
+    public String sendMessageToPatient(@PathVariable UUID patientId,
+                                       @RequestParam String body,
+                                       @AuthenticationPrincipal DoctorPrincipal principal,
+                                       RedirectAttributes redirectAttributes) {
+        Doctor doctor = doctorRepository.findById(principal.getId()).orElse(null);
+        Patient patient = patientRepository.findById(patientId).orElse(null);
+
+        if (doctor == null || patient == null
+                || !patientAccessService.canViewPatient(doctor, patient)) {
+            log.warn("Doctor id={} denied sendMessage for patient id={}",
+                    principal.getId(), patientId);
+            return "redirect:/dashboard";
+        }
+
+        try {
+            patientMessageService.sendToPatient(doctor, patient, body);
+            redirectAttributes.addFlashAttribute("success",
+                    "Message sent. The patient will see it in their portal (and on WhatsApp if reachable).");
+        } catch (IllegalArgumentException e) {
+            redirectAttributes.addFlashAttribute("error", e.getMessage());
+        }
+        return "redirect:/dashboard/patient/" + patientId;
     }
 
     /**
