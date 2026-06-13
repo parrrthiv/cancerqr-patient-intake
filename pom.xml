@@ -13,7 +13,7 @@
     
     <groupId>com.oncology</groupId>
     <artifactId>cancer-intake-system</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0-alpha</version>
     <name>Cancer Patient Intake System</name>
     <description>WhatsApp-based cancer patient intake and initial medicine suggestion system</description>
     
