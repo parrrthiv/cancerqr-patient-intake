@@ -118,8 +118,17 @@ public interface PatientRepository extends JpaRepository<Patient, UUID> {
      * caller won the transition, 0 means another concurrent or re-delivered event
      * already advanced it. Used to make WhatsApp media-upload steps race-safe so
      * a single step can't ingest two files (see ConversationService).
+     *
+     * <p>{@code clearAutomatically + flushAutomatically}: this is a bulk UPDATE,
+     * which bypasses the persistence context. Under {@code spring.jpa.open-in-view}
+     * a web request holds ONE session, so a Patient loaded earlier in the request
+     * keeps its STALE {@code conversationState}; a later entity-save in the same
+     * request (e.g. {@code storeReport} setting the upload flag) would then write
+     * the old state back, bouncing the portal intake to the previous step. Clearing
+     * the context forces a fresh read after the advance. (The WhatsApp {@code @Async}
+     * path runs outside open-in-view and was unaffected, but this is correct there too.)
      */
-    @Modifying
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Patient p SET p.conversationState = :next, " +
            "p.lastInteractionAt = CURRENT_TIMESTAMP " +
            "WHERE p.id = :id AND p.conversationState = :expected")
