@@ -3,417 +3,367 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CancerQR - Patient Review</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>CancerQR — Patient Review</title>
+    <link rel="stylesheet" th:href="@{/css/cancerqr.css}">
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <!-- Navigation -->
-    <nav class="bg-white shadow-lg">
-        <div class="max-w-7xl mx-auto px-4">
-            <div class="flex justify-between items-center py-4">
-                <div class="flex items-center space-x-4">
-                    <a th:href="@{/dashboard}" class="text-2xl font-bold text-blue-600">🏥 CancerQR</a>
-                    <span class="text-gray-400">|</span>
-                    <span class="text-gray-600">Patient Review</span>
-                </div>
-                <div class="flex items-center space-x-4">
-                    <div class="text-right">
-                        <p class="text-sm font-semibold text-gray-800" th:text="${doctor.fullName}">Dr. Name</p>
-                        <p class="text-xs text-gray-500" th:text="${doctor.domain.displayName}">Department</p>
-                    </div>
-                </div>
+<body>
+    <header class="topbar">
+        <a class="tb-brand" th:href="@{/dashboard}"><div class="tb-mark">CQR</div><span class="tb-name">CancerQR</span></a>
+        <div class="tb-div"></div>
+        <nav class="tb-nav"><span class="tnav active">Patient Review</span></nav>
+        <div class="tb-right">
+            <div class="tb-user">
+                <div class="tb-uname" th:text="${doctor.fullName}">Dr. Name</div>
+                <div class="tb-urole" th:text="${doctor.domain.displayName}">Department</div>
             </div>
+            <a class="tnav" th:href="@{/dashboard}">← Dashboard</a>
         </div>
-    </nav>
+    </header>
 
-    <div class="max-w-7xl mx-auto px-4 py-8">
-        <!-- Back Button -->
-        <a th:href="@{/dashboard}" class="inline-flex items-center text-blue-600 hover:text-blue-800 mb-6">
-            ← Back to Dashboard
-        </a>
-
+    <div class="page" style="max-width:1180px">
         <!-- Flash messages (e.g. message-to-patient confirmation) -->
-        <div th:if="${success}" class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6"
-             th:text="${success}">Success</div>
-        <div th:if="${error}" class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6"
-             th:text="${error}">Error</div>
+        <div th:if="${success}" class="alert alert-green" role="status">
+            <div class="alert-icon">✅</div><div class="alert-body"><div class="alert-text" th:text="${success}">Success</div></div>
+        </div>
+        <div th:if="${error}" class="alert alert-red" role="alert">
+            <div class="alert-icon">⚠️</div><div class="alert-body"><div class="alert-text" th:text="${error}">Error</div></div>
+        </div>
 
         <!-- Review Completed Banner -->
-        <div th:if="${review != null and review.status.name() == 'COMPLETED'}"
-             class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
-            ✅ You have already submitted your review for this patient on
-            <span th:text="${review.reviewedAt != null ? #temporals.format(review.reviewedAt, 'dd MMM yyyy HH:mm') : 'N/A'}"></span>
+        <div th:if="${review != null and review.status.name() == 'COMPLETED'}" class="alert alert-green">
+            <div class="alert-icon">✅</div>
+            <div class="alert-body"><div class="alert-text">You have already submitted your review for this patient on
+                <span th:text="${review.reviewedAt != null ? #temporals.format(review.reviewedAt, 'dd MMM yyyy HH:mm') : 'N/A'}"></span></div></div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Left Column: Patient Info -->
-            <div class="lg:col-span-1 space-y-6">
+        <div class="split">
+            <!-- ============ Left Column: Patient Info ============ -->
+            <div>
                 <!-- Patient Card -->
-                <div class="bg-white rounded-xl shadow-md p-6">
-                    <h2 class="text-xl font-bold text-gray-800 mb-4">👤 Patient Information</h2>
-                    
-                    <div class="space-y-3">
-                        <div>
-                            <span class="text-gray-500 text-sm">Name</span>
-                            <p class="font-semibold" th:text="${patient.name != null ? patient.name : 'Not provided'}">Patient Name</p>
+                <div class="card">
+                    <div class="card-header"><div class="card-title">👤 Patient Information</div></div>
+                    <div class="card-body">
+                        <div class="data-row" style="border-bottom:1px solid var(--gray-1)">
+                            <span class="data-label">Name</span>
+                            <span class="data-val" th:text="${patient.name != null ? patient.name : 'Not provided'}">Patient Name</span>
                         </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <span class="text-gray-500 text-sm">Age</span>
-                                <p class="font-semibold" th:text="${patient.age != null ? patient.age + ' years' : '-'}">45 years</p>
-                            </div>
-                            <div>
-                                <span class="text-gray-500 text-sm">Weight</span>
-                                <p class="font-semibold" th:text="${patient.weightKg != null ? patient.weightKg + ' kg' : '-'}">70 kg</p>
-                            </div>
+                        <div class="data-row" style="border-bottom:1px solid var(--gray-1)">
+                            <span class="data-label">Age</span>
+                            <span class="data-val" th:text="${patient.age != null ? patient.age + ' years' : '-'}">45 years</span>
                         </div>
-                        <div>
-                            <span class="text-gray-500 text-sm">Cancer Type</span>
-                            <p class="font-semibold text-red-600" th:text="${patient.cancerType != null ? patient.cancerType : 'Not specified'}">Breast Cancer</p>
+                        <div class="data-row" style="border-bottom:1px solid var(--gray-1)">
+                            <span class="data-label">Weight</span>
+                            <span class="data-val" th:text="${patient.weightKg != null ? patient.weightKg + ' kg' : '-'}">70 kg</span>
                         </div>
-                        <div>
-                            <span class="text-gray-500 text-sm">Pain Scale</span>
-                            <div class="flex items-center mt-1">
-                                <div class="w-full bg-gray-200 rounded-full h-2.5">
-                                    <div class="bg-red-500 h-2.5 rounded-full" 
-                                         th:style="'width: ' + (${patient.painScale != null ? patient.painScale * 10 : 0}) + '%'"></div>
-                                </div>
-                                <span class="ml-2 font-semibold" th:text="${patient.painScale != null ? patient.painScale + '/10' : '-'}">5/10</span>
+                        <div class="data-row" style="border-bottom:1px solid var(--gray-1)">
+                            <span class="data-label">Cancer Type</span>
+                            <span class="data-val" style="color:var(--red)" th:text="${patient.cancerType != null ? patient.cancerType : 'Not specified'}">Breast Cancer</span>
+                        </div>
+                        <div style="padding:10px 0;border-bottom:1px solid var(--gray-1)">
+                            <span class="data-label">Pain Scale</span>
+                            <div class="flex items-center gap-2 mt-2">
+                                <div class="bar"><span style="background:var(--red)" th:style="'width: ' + (${patient.painScale != null ? patient.painScale * 10 : 0}) + '%;background:var(--red)'"></span></div>
+                                <span class="data-val" th:text="${patient.painScale != null ? patient.painScale + '/10' : '-'}">5/10</span>
                             </div>
                         </div>
-                        <div>
-                            <span class="text-gray-500 text-sm">Diagnosis Date</span>
-                            <p class="font-semibold" th:text="${patient.diagnosisDate != null ? #temporals.format(patient.diagnosisDate, 'dd MMM yyyy') : '-'}">01 Jan 2025</p>
+                        <div class="data-row">
+                            <span class="data-label">Diagnosis Date</span>
+                            <span class="data-val" th:text="${patient.diagnosisDate != null ? #temporals.format(patient.diagnosisDate, 'dd MMM yyyy') : '-'}">01 Jan 2025</span>
                         </div>
                     </div>
                 </div>
 
                 <!-- Extracted Report Data -->
-                <div th:if="${patient.cancerStage != null or patient.esrValue != null or patient.crpValue != null or patient.effectivePainScale != null}"
-                     class="bg-white rounded-xl shadow-md p-6">
-                    <h2 class="text-xl font-bold text-gray-800 mb-4">🔬 Extracted Report Data</h2>
-                    <div class="space-y-3">
-                        <div th:if="${patient.cancerStage != null}">
-                            <span class="text-gray-500 text-sm">Cancer Stage</span>
-                            <p class="font-semibold text-red-600" th:text="${patient.cancerStage}">Stage IV</p>
+                <div th:if="${patient.cancerStage != null or patient.esrValue != null or patient.crpValue != null or patient.effectivePainScale != null}" class="card">
+                    <div class="card-header"><div class="card-title">🔬 Extracted Report Data</div></div>
+                    <div class="card-body">
+                        <div th:if="${patient.cancerStage != null}" class="data-row">
+                            <span class="data-label">Cancer Stage</span>
+                            <span class="data-val" style="color:var(--red)" th:text="${patient.cancerStage}">Stage IV</span>
                         </div>
-                        <div th:if="${patient.esrValue != null}" class="flex justify-between items-center">
-                            <div>
-                                <span class="text-gray-500 text-sm">ESR</span>
-                                <p class="font-semibold" th:text="${patient.esrValue + ' mm/hr'}">48 mm/hr</p>
-                            </div>
-                            <span th:if="${patient.esrValue > 40}" class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">HIGH</span>
-                            <span th:if="${patient.esrValue > 20 and patient.esrValue <= 40}" class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded-full">ELEVATED</span>
+                        <div th:if="${patient.esrValue != null}" class="data-row">
+                            <span><span class="data-label">ESR</span><span class="data-val" style="display:block" th:text="${patient.esrValue + ' mm/hr'}">48 mm/hr</span></span>
+                            <span th:if="${patient.esrValue > 40}" class="badge badge-red">HIGH</span>
+                            <span th:if="${patient.esrValue > 20 and patient.esrValue <= 40}" class="badge badge-gold">ELEVATED</span>
                         </div>
-                        <div th:if="${patient.crpValue != null}" class="flex justify-between items-center">
-                            <div>
-                                <span class="text-gray-500 text-sm">CRP</span>
-                                <p class="font-semibold" th:text="${patient.crpValue + ' mg/L'}">22 mg/L</p>
-                            </div>
-                            <span th:if="${patient.crpValue > 20}" class="px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full">HIGH</span>
-                            <span th:if="${patient.crpValue > 10 and patient.crpValue <= 20}" class="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded-full">ELEVATED</span>
+                        <div th:if="${patient.crpValue != null}" class="data-row">
+                            <span><span class="data-label">CRP</span><span class="data-val" style="display:block" th:text="${patient.crpValue + ' mg/L'}">22 mg/L</span></span>
+                            <span th:if="${patient.crpValue > 20}" class="badge badge-red">HIGH</span>
+                            <span th:if="${patient.crpValue > 10 and patient.crpValue <= 20}" class="badge badge-gold">ELEVATED</span>
                         </div>
-                        <div th:if="${patient.effectivePainScale != null and patient.effectivePainScale > patient.painScale}">
-                            <span class="text-gray-500 text-sm">Adjusted Pain Scale</span>
-                            <div class="flex items-center mt-1">
-                                <span class="font-semibold text-gray-500 line-through" th:text="${patient.painScale + '/10'}">3/10</span>
-                                <span class="mx-2 text-orange-500">→</span>
-                                <span class="font-semibold text-orange-600" th:text="${patient.effectivePainScale + '/10'}">7/10</span>
-                                <span class="ml-2 px-2 py-1 bg-orange-100 text-orange-700 text-xs rounded-full">Inflammation-adjusted</span>
+                        <div th:if="${patient.effectivePainScale != null and patient.effectivePainScale > patient.painScale}" style="padding-top:8px">
+                            <span class="data-label">Adjusted Pain Scale</span>
+                            <div class="flex items-center gap-2 mt-2">
+                                <span class="muted" style="text-decoration:line-through" th:text="${patient.painScale + '/10'}">3/10</span>
+                                <span style="color:var(--gold)">→</span>
+                                <span class="strong" style="color:var(--gold)" th:text="${patient.effectivePainScale + '/10'}">7/10</span>
+                                <span class="badge badge-gold">Inflammation-adjusted</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Reports -->
-                <div class="bg-white rounded-xl shadow-md p-6">
-                    <h2 class="text-xl font-bold text-gray-800 mb-4">📎 Uploaded Reports</h2>
-                    <div class="space-y-2">
+                <div class="card">
+                    <div class="card-header"><div class="card-title">📎 Uploaded Reports</div></div>
+                    <div class="card-body">
                         <!-- Dynamic report links -->
-                        <div th:if="${reports != null and !reports.isEmpty()}" th:each="report : ${reports}"
-                             class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div th:if="${reports != null and !reports.isEmpty()}" th:each="report : ${reports}" class="msg flex items-center justify-between">
                             <span th:text="'📄 ' + ${report.reportType.displayName}">📄 Report</span>
                             <a th:if="${isAdmin or report.phiReviewStatus.name() == 'APPROVED'}"
-                               th:href="@{/dashboard/reports/{id}/view(id=${report.id})}"
-                               target="_blank"
-                               class="text-blue-600 hover:text-blue-800 font-medium text-sm">
-                                📥 View
-                            </a>
-                            <span th:unless="${isAdmin or report.phiReviewStatus.name() == 'APPROVED'}"
-                                  class="text-gray-400 font-medium text-sm" title="Awaiting PHI review">
-                                🔒 Held for PHI review
-                            </span>
+                               th:href="@{/dashboard/reports/{id}/view(id=${report.id})}" target="_blank" class="btn btn-outline-blue btn-sm">📥 View</a>
+                            <span th:unless="${isAdmin or report.phiReviewStatus.name() == 'APPROVED'}" class="muted text-sm" title="Awaiting PHI review">🔒 Held for PHI review</span>
                         </div>
                         <!-- Fallback when no reports exist -->
-                        <div th:if="${reports == null or reports.isEmpty()}" class="space-y-2">
-                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div th:if="${reports == null or reports.isEmpty()}">
+                            <div class="msg flex items-center justify-between">
                                 <span>📄 PET Scan</span>
-                                <span th:if="${patient.petScanUploaded}" class="text-green-600">✅ Uploaded</span>
-                                <span th:unless="${patient.petScanUploaded}" class="text-gray-400">⏳ Pending</span>
+                                <span th:if="${patient.petScanUploaded}" style="color:var(--green)">✅ Uploaded</span>
+                                <span th:unless="${patient.petScanUploaded}" class="muted">⏳ Pending</span>
                             </div>
-                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div class="msg flex items-center justify-between">
                                 <span>📄 Blood Report</span>
-                                <span th:if="${patient.bloodReportUploaded}" class="text-green-600">✅ Uploaded</span>
-                                <span th:unless="${patient.bloodReportUploaded}" class="text-gray-400">⏳ Pending</span>
+                                <span th:if="${patient.bloodReportUploaded}" style="color:var(--green)">✅ Uploaded</span>
+                                <span th:unless="${patient.bloodReportUploaded}" class="muted">⏳ Pending</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Review Status -->
-                <div class="bg-white rounded-xl shadow-md p-6">
-                    <h2 class="text-xl font-bold text-gray-800 mb-4">📊 Review Status</h2>
-                    <div class="space-y-2">
-                        <div class="flex justify-between text-sm">
+                <div class="card">
+                    <div class="card-header"><div class="card-title">📊 Review Status</div></div>
+                    <div class="card-body">
+                        <div class="flex justify-between text-sm mb-2">
                             <span>Completed</span>
-                            <span class="font-semibold" th:text="${reviewStatus.completed} + '/8'">0/8</span>
+                            <span class="strong" th:text="${reviewStatus.completed} + '/8'">0/8</span>
                         </div>
-                        <div class="w-full bg-gray-200 rounded-full h-2.5">
-                            <div class="bg-green-500 h-2.5 rounded-full" 
-                                 th:style="'width: ' + (${reviewStatus.completed} * 12.5) + '%'"></div>
-                        </div>
-                        <div class="mt-4 text-xs space-y-1">
-                            <div th:each="entry : ${reviewStatus.domainStatus}" class="flex justify-between">
+                        <div class="bar"><span th:style="'width: ' + (${reviewStatus.completed} * 12.5) + '%'"></span></div>
+                        <div style="margin-top:14px">
+                            <div th:each="entry : ${reviewStatus.domainStatus}" class="flex justify-between text-xs" style="padding:3px 0">
                                 <span th:text="${entry.key}">Domain</span>
-                                <span th:if="${entry.value == 'COMPLETED'}" class="text-green-600">✅</span>
-                                <span th:if="${entry.value == 'PENDING'}" class="text-yellow-600">⏳</span>
-                                <span th:if="${entry.value == 'IN_PROGRESS'}" class="text-blue-600">🔄</span>
+                                <span th:if="${entry.value == 'COMPLETED'}" style="color:var(--green)">✅</span>
+                                <span th:if="${entry.value == 'PENDING'}" style="color:var(--gold)">⏳</span>
+                                <span th:if="${entry.value == 'IN_PROGRESS'}" style="color:var(--blue)">🔄</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- Message Patient -->
-                <div class="bg-white rounded-xl shadow-md p-6">
-                    <h2 class="text-xl font-bold text-gray-800 mb-1">💬 Message Patient</h2>
-                    <p class="text-xs text-gray-500 mb-4">
-                        Delivered to the patient portal and mirrored to WhatsApp when reachable.
-                    </p>
-                    <form th:action="@{/dashboard/patient/{id}/message(id=${patient.id})}" method="post" class="space-y-3">
-                        <textarea name="body" rows="3" required th:maxlength="${maxMessageChars}"
-                                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                  placeholder="Write a short update or instruction for the patient…"></textarea>
-                        <button type="submit"
-                                class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg text-sm">
-                            Send to patient
-                        </button>
-                    </form>
+                <div class="card">
+                    <div class="card-header"><div>
+                        <div class="card-title">💬 Message Patient</div>
+                        <div class="card-sub">Delivered to the patient portal and mirrored to WhatsApp when reachable.</div>
+                    </div></div>
+                    <div class="card-body">
+                        <form th:action="@{/dashboard/patient/{id}/message(id=${patient.id})}" method="post">
+                            <div class="field">
+                                <textarea name="body" rows="3" required th:maxlength="${maxMessageChars}"
+                                          placeholder="Write a short update or instruction for the patient…"></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-block">Send to patient</button>
+                        </form>
 
-                    <div th:if="${patientMessages != null and !patientMessages.isEmpty()}" class="mt-4">
-                        <h3 class="text-xs font-semibold text-gray-500 uppercase mb-2">History</h3>
-                        <div class="space-y-2 max-h-64 overflow-y-auto">
-                            <div th:each="m : ${patientMessages}" class="bg-gray-50 rounded-lg p-3">
-                                <div class="flex justify-between items-center mb-1">
-                                    <span class="text-xs font-semibold text-gray-700"
-                                          th:text="${m.doctor != null ? m.doctor.fullName : 'Care team'}">Doctor</span>
-                                    <span class="text-xs text-gray-400"
-                                          th:text="${#temporals.format(m.createdAt, 'dd MMM HH:mm')}">date</span>
+                        <div th:if="${patientMessages != null and !patientMessages.isEmpty()}" style="margin-top:16px">
+                            <div class="sec-label">History</div>
+                            <div style="max-height:260px;overflow-y:auto">
+                                <div th:each="m : ${patientMessages}" class="msg">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-xs strong" th:text="${m.doctor != null ? m.doctor.fullName : 'Care team'}">Doctor</span>
+                                        <span class="text-xs muted" th:text="${#temporals.format(m.createdAt, 'dd MMM HH:mm')}">date</span>
+                                    </div>
+                                    <p class="text-sm" style="white-space:pre-line" th:text="${m.body}">Body</p>
+                                    <p class="text-xs" style="margin-top:4px"
+                                       th:style="${m.readAt != null} ? 'color:var(--green);margin-top:4px' : 'color:var(--gray-4);margin-top:4px'"
+                                       th:text="${m.readAt != null ? 'Read by patient ' + #temporals.format(m.readAt, 'dd MMM HH:mm') : 'Not yet read in portal'}">read state</p>
                                 </div>
-                                <p class="text-sm text-gray-700 whitespace-pre-line" th:text="${m.body}">Body</p>
-                                <p class="text-xs mt-1"
-                                   th:classappend="${m.readAt != null} ? 'text-green-600' : 'text-gray-400'"
-                                   th:text="${m.readAt != null ? 'Read by patient ' + #temporals.format(m.readAt, 'dd MMM HH:mm') : 'Not yet read in portal'}">
-                                    read state
-                                </p>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Right Column: Analysis + Review Form -->
-            <div class="lg:col-span-2 space-y-6">
-
+            <!-- ============ Right Column: Analysis + Review Form ============ -->
+            <div>
                 <!-- Initial Analysis Card -->
-                <div th:if="${analysis != null}" class="bg-white rounded-xl shadow-md p-6">
-                    <div class="flex justify-between items-center mb-4">
-                        <h2 class="text-xl font-bold text-gray-800">📊 Initial Analysis</h2>
-                        <div class="flex items-center space-x-3">
-                            <span class="text-xs text-gray-500" th:text="'Formula ' + ${analysis.formulaVersion}">Formula v1.0</span>
-                            <span th:if="${analysis.requiresUrgentReview}" class="px-2 py-1 bg-red-100 text-red-700 text-xs font-semibold rounded-full">URGENT REVIEW</span>
-                            <span class="text-xs text-gray-400" th:text="'Generated ' + ${#temporals.format(analysis.createdAt, 'dd MMM yyyy HH:mm')}">Generated 01 Jan 2025</span>
+                <div th:if="${analysis != null}" class="card">
+                    <div class="card-header">
+                        <div class="card-title">📊 Initial Analysis</div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="text-xs muted" th:text="'Formula ' + ${analysis.formulaVersion}">Formula v1.0</span>
+                            <span th:if="${analysis.requiresUrgentReview}" class="badge badge-red">URGENT REVIEW</span>
+                            <span class="text-xs muted" th:text="'Generated ' + ${#temporals.format(analysis.createdAt, 'dd MMM yyyy HH:mm')}">Generated 01 Jan 2025</span>
                         </div>
                     </div>
+                    <div class="card-body">
+                        <!-- Assessment Summary -->
+                        <div th:if="${analysis.assessmentSummary != null}" class="mb-3">
+                            <pre class="summary" th:text="${analysis.assessmentSummary}">Assessment summary</pre>
+                        </div>
 
-                    <!-- Assessment Summary -->
-                    <div th:if="${analysis.assessmentSummary != null}" class="mb-4">
-                        <pre class="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 rounded-lg p-4 font-sans" th:text="${analysis.assessmentSummary}">Assessment summary</pre>
-                    </div>
-
-                    <!-- Alerts -->
-                    <div th:if="${analysis.alertsJson != null and analysis.alertsJson.containsKey('items')}" class="mb-4">
-                        <h3 class="font-semibold text-gray-800 mb-2">Alerts</h3>
-                        <div class="space-y-2">
-                            <div th:each="alert : ${analysis.alertsJson.get('items')}" class="flex items-start p-3 rounded-lg"
-                                 th:classappend="${alert.get('severity') == 'URGENT' ? 'bg-red-50 border border-red-200' : (alert.get('severity') == 'WARNING' ? 'bg-yellow-50 border border-yellow-200' : 'bg-blue-50 border border-blue-200')}">
-                                <span th:if="${alert.get('severity') == 'URGENT'}" class="mr-2">🔴</span>
-                                <span th:if="${alert.get('severity') == 'WARNING'}" class="mr-2">🟡</span>
-                                <span th:if="${alert.get('severity') == 'INFO'}" class="mr-2">🔵</span>
-                                <div>
-                                    <p class="text-sm font-medium" th:text="${alert.get('message')}">Alert message</p>
-                                    <p class="text-xs text-gray-600 mt-1" th:text="${alert.get('recommendation')}">Recommendation</p>
+                        <!-- Alerts -->
+                        <div th:if="${analysis.alertsJson != null and analysis.alertsJson.containsKey('items')}" class="mb-3">
+                            <div class="sec-label">Alerts</div>
+                            <div th:each="alert : ${analysis.alertsJson.get('items')}" class="alert"
+                                 th:classappend="${alert.get('severity') == 'URGENT' ? 'alert-red' : (alert.get('severity') == 'WARNING' ? 'alert-gold' : 'alert-blue')}">
+                                <div class="alert-icon">
+                                    <span th:if="${alert.get('severity') == 'URGENT'}">🔴</span>
+                                    <span th:if="${alert.get('severity') == 'WARNING'}">🟡</span>
+                                    <span th:if="${alert.get('severity') == 'INFO'}">🔵</span>
+                                </div>
+                                <div class="alert-body">
+                                    <div class="alert-title" th:text="${alert.get('message')}">Alert message</div>
+                                    <div class="alert-text" th:text="${alert.get('recommendation')}">Recommendation</div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Recommended Medicines -->
-                    <div th:if="${analysis.recommendedMedicinesJson != null and analysis.recommendedMedicinesJson.containsKey('recommendations')}" class="mb-4">
-                        <h3 class="font-semibold text-gray-800 mb-2">Recommended Medicines</h3>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <div th:each="med : ${analysis.recommendedMedicinesJson.get('recommendations')}"
-                                 class="p-3 bg-gray-50 rounded-lg">
-                                <p class="font-medium text-sm" th:text="${med.get('name')}">Medicine</p>
-                                <p class="text-xs text-gray-500" th:text="${med.get('category')}">Category</p>
-                                <p class="text-xs mt-1"><span class="font-medium">Dose:</span> <span th:text="${med.get('dose')}">dose</span></p>
-                                <p class="text-xs"><span class="font-medium">Frequency:</span> <span th:text="${med.get('frequency')}">freq</span></p>
+                        <!-- Recommended Medicines -->
+                        <div th:if="${analysis.recommendedMedicinesJson != null and analysis.recommendedMedicinesJson.containsKey('recommendations')}" class="mb-3">
+                            <div class="sec-label">Recommended Medicines</div>
+                            <div class="mini-grid">
+                                <div th:each="med : ${analysis.recommendedMedicinesJson.get('recommendations')}" class="msg">
+                                    <p class="strong text-sm" th:text="${med.get('name')}">Medicine</p>
+                                    <p class="text-xs muted" th:text="${med.get('category')}">Category</p>
+                                    <p class="text-xs" style="margin-top:4px"><span class="strong">Dose:</span> <span th:text="${med.get('dose')}">dose</span></p>
+                                    <p class="text-xs"><span class="strong">Frequency:</span> <span th:text="${med.get('frequency')}">freq</span></p>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Supportive Care -->
-                    <div th:if="${analysis.supportiveCareJson != null and analysis.supportiveCareJson.containsKey('items')}">
-                        <h3 class="font-semibold text-gray-800 mb-2">Supportive Care</h3>
-                        <div class="space-y-2">
-                            <div th:each="care : ${analysis.supportiveCareJson.get('items')}"
-                                 class="p-3 bg-green-50 rounded-lg">
-                                <p class="font-medium text-sm" th:text="${care.get('name')}">Care item</p>
-                                <p class="text-xs text-gray-500" th:text="${care.get('category')}">Category</p>
-                                <p th:if="${care.get('notes') != null}" class="text-xs text-gray-600 mt-1" th:text="${care.get('notes')}">Notes</p>
+                        <!-- Supportive Care -->
+                        <div th:if="${analysis.supportiveCareJson != null and analysis.supportiveCareJson.containsKey('items')}">
+                            <div class="sec-label">Supportive Care</div>
+                            <div th:each="care : ${analysis.supportiveCareJson.get('items')}" class="msg" style="background:var(--green-lt);border-color:#BBF7D0">
+                                <p class="strong text-sm" th:text="${care.get('name')}">Care item</p>
+                                <p class="text-xs muted" th:text="${care.get('category')}">Category</p>
+                                <p th:if="${care.get('notes') != null}" class="text-xs muted" style="margin-top:4px" th:text="${care.get('notes')}">Notes</p>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- No Analysis Banner -->
-                <div th:if="${analysis == null}" class="bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded-xl">
-                    ⏳ No initial analysis has been generated for this patient yet.
+                <div th:if="${analysis == null}" class="alert alert-gold">
+                    <div class="alert-icon">⏳</div><div class="alert-body"><div class="alert-text">No initial analysis has been generated for this patient yet.</div></div>
                 </div>
 
-                <div class="bg-white rounded-xl shadow-md p-6">
-                    <h2 class="text-xl font-bold text-gray-800 mb-2">
-                        ✍️ Your Review
-                        <span class="text-sm font-normal text-blue-600" th:text="'(' + ${doctor.domain.displayName} + ')'"></span>
-                        <span th:if="${review != null and review.status.name() == 'COMPLETED'}" 
-                              class="ml-2 px-2 py-1 bg-green-100 text-green-600 text-xs rounded-full">Submitted</span>
-                    </h2>
-                    <p class="text-gray-500 text-sm mb-6">Select the protocols for this patient based on your domain expertise.</p>
+                <!-- Review Form -->
+                <div class="card">
+                    <div class="card-header">
+                        <div>
+                            <div class="card-title">✍️ Your Review
+                                <span class="muted" style="font-weight:600" th:text="'(' + ${doctor.domain.displayName} + ')'"></span>
+                                <span th:if="${review != null and review.status.name() == 'COMPLETED'}" class="badge badge-green">Submitted</span>
+                            </div>
+                            <div class="card-sub">Select the protocols for this patient based on your domain expertise.</div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <form th:action="@{/dashboard/patient/{id}/review(id=${patient.id})}" method="post">
 
-                    <form th:action="@{/dashboard/patient/{id}/review(id=${patient.id})}" method="post" class="space-y-6">
-                        
-                        <!-- ECS Products -->
-                        <div class="border-b pb-6">
-                            <h3 class="font-semibold text-gray-800 mb-3">🌿 ECS Products (Cannabis-Ayurvedic)</h3>
-                            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                <div th:each="product : ${masterLists.ecsProducts}" class="flex items-center">
-                                    <input type="checkbox" name="ecsDefault" th:value="${product}" th:id="'ecs_' + ${product}"
-                                           th:checked="${savedEcs != null ? savedEcs.contains(product) : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.ecsDefault != null and physicianProtocol.protocols.ecsDefault.contains(product))}"
-                                           class="h-4 w-4 text-blue-600 rounded">
-                                    <label th:for="'ecs_' + ${product}" class="ml-2 text-sm text-gray-700" th:text="${product}">Product</label>
+                            <!-- ECS Products -->
+                            <div class="form-sec">
+                                <h3>🌿 ECS Products (Cannabis-Ayurvedic)</h3>
+                                <div class="check-grid">
+                                    <label th:each="product : ${masterLists.ecsProducts}" class="check">
+                                        <input type="checkbox" name="ecsDefault" th:value="${product}" th:id="'ecs_' + ${product}"
+                                               th:checked="${savedEcs != null ? savedEcs.contains(product) : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.ecsDefault != null and physicianProtocol.protocols.ecsDefault.contains(product))}">
+                                        <span th:text="${product}">Product</span>
+                                    </label>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- Diet & Fasting -->
-                        <div class="border-b pb-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <h3 class="font-semibold text-gray-800 mb-3">🥗 Diet Protocol</h3>
-                                <select name="diet" class="w-full border border-gray-300 rounded-lg px-3 py-2">
-                                    <option value="">Select Diet...</option>
-                                    <option th:each="diet : ${masterLists.dietProtocols}" 
-                                            th:value="${diet}" th:text="${diet}"
-                                            th:selected="${savedDiet != null ? savedDiet == diet : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.diet == diet)}">Diet</option>
-                                </select>
-                            </div>
-                            <div>
-                                <h3 class="font-semibold text-gray-800 mb-3">⏰ Fasting Protocol</h3>
-                                <select name="fasting" class="w-full border border-gray-300 rounded-lg px-3 py-2">
-                                    <option value="">Select Fasting...</option>
-                                    <option th:each="fasting : ${masterLists.fastingProtocols}" 
-                                            th:value="${fasting}" th:text="${fasting}"
-                                            th:selected="${savedFasting != null ? savedFasting == fasting : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.fasting == fasting)}">Fasting</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <!-- Mushrooms -->
-                        <div class="border-b pb-6">
-                            <h3 class="font-semibold text-gray-800 mb-3">🍄 Functional Mushrooms</h3>
-                            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                <div th:each="mushroom : ${masterLists.mushrooms}" class="flex items-center">
-                                    <input type="checkbox" name="mushrooms" th:value="${mushroom}" th:id="'mush_' + ${mushroom}"
-                                           th:checked="${savedMushrooms != null ? savedMushrooms.contains(mushroom) : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.mushrooms != null and physicianProtocol.protocols.mushrooms.contains(mushroom))}"
-                                           class="h-4 w-4 text-blue-600 rounded">
-                                    <label th:for="'mush_' + ${mushroom}" class="ml-2 text-sm text-gray-700" th:text="${mushroom}">Mushroom</label>
+                            <!-- Diet & Fasting -->
+                            <div class="form-sec grid-2">
+                                <div class="field">
+                                    <label>🥗 Diet Protocol</label>
+                                    <select name="diet">
+                                        <option value="">Select Diet...</option>
+                                        <option th:each="diet : ${masterLists.dietProtocols}" th:value="${diet}" th:text="${diet}"
+                                                th:selected="${savedDiet != null ? savedDiet == diet : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.diet == diet)}">Diet</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label>⏰ Fasting Protocol</label>
+                                    <select name="fasting">
+                                        <option value="">Select Fasting...</option>
+                                        <option th:each="fasting : ${masterLists.fastingProtocols}" th:value="${fasting}" th:text="${fasting}"
+                                                th:selected="${savedFasting != null ? savedFasting == fasting : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.fasting == fasting)}">Fasting</option>
+                                    </select>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- Herbs -->
-                        <div class="border-b pb-6">
-                            <h3 class="font-semibold text-gray-800 mb-3">🌱 Anti-Cancer Herbs</h3>
-                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                                <div th:each="herb : ${masterLists.antiCancerHerbs}" class="flex items-center">
-                                    <input type="checkbox" name="herbs" th:value="${herb}" th:id="'herb_' + ${herb}"
-                                           th:checked="${savedHerbs != null ? savedHerbs.contains(herb) : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.herbs != null and physicianProtocol.protocols.herbs.contains(herb))}"
-                                           class="h-4 w-4 text-blue-600 rounded">
-                                    <label th:for="'herb_' + ${herb}" class="ml-2 text-sm text-gray-700" th:text="${herb}">Herb</label>
+                            <!-- Mushrooms -->
+                            <div class="form-sec">
+                                <h3>🍄 Functional Mushrooms</h3>
+                                <div class="check-grid">
+                                    <label th:each="mushroom : ${masterLists.mushrooms}" class="check">
+                                        <input type="checkbox" name="mushrooms" th:value="${mushroom}" th:id="'mush_' + ${mushroom}"
+                                               th:checked="${savedMushrooms != null ? savedMushrooms.contains(mushroom) : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.mushrooms != null and physicianProtocol.protocols.mushrooms.contains(mushroom))}">
+                                        <span th:text="${mushroom}">Mushroom</span>
+                                    </label>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- Repurposed Drugs -->
-                        <div class="border-b pb-6">
-                            <h3 class="font-semibold text-gray-800 mb-3">💊 Repurposed Drugs (Optional)</h3>
-                            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-                                <div th:each="drug : ${masterLists.repurposedDrugs}" class="flex items-center">
-                                    <input type="checkbox" name="repurposedDrugs" th:value="${drug}" th:id="'drug_' + ${drug}"
-                                           th:checked="${savedDrugs != null ? savedDrugs.contains(drug) : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.repurposedDrugs != null and physicianProtocol.protocols.repurposedDrugs.contains(drug))}"
-                                           class="h-4 w-4 text-orange-600 rounded">
-                                    <label th:for="'drug_' + ${drug}" class="ml-2 text-sm text-gray-700" th:text="${drug}">Drug</label>
+                            <!-- Herbs -->
+                            <div class="form-sec">
+                                <h3>🌱 Anti-Cancer Herbs</h3>
+                                <div class="check-grid">
+                                    <label th:each="herb : ${masterLists.antiCancerHerbs}" class="check">
+                                        <input type="checkbox" name="herbs" th:value="${herb}" th:id="'herb_' + ${herb}"
+                                               th:checked="${savedHerbs != null ? savedHerbs.contains(herb) : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.herbs != null and physicianProtocol.protocols.herbs.contains(herb))}">
+                                        <span th:text="${herb}">Herb</span>
+                                    </label>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- Specialty Treatments -->
-                        <div class="border-b pb-6">
-                            <h3 class="font-semibold text-gray-800 mb-3">⭐ Specialty Treatments (Your Domain)</h3>
-                            <input type="text" name="specialty" 
-                                   th:value="${savedSpecialty != null ? savedSpecialty : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.specialty != null ? #strings.listJoin(physicianProtocol.protocols.specialty, ', ') : '')}"
-                                   class="w-full border border-gray-300 rounded-lg px-3 py-2"
-                                   placeholder="e.g., Panchakarma, IV Vit C, etc.">
-                            <p class="text-xs text-gray-500 mt-1">Enter specialty treatments specific to your domain (comma separated)</p>
-                        </div>
-
-                        <!-- Notes & Recommendations -->
-                        <div class="space-y-4">
-                            <div>
-                                <h3 class="font-semibold text-gray-800 mb-2">📝 Clinical Notes</h3>
-                                <textarea name="notes" rows="3" 
-                                          class="w-full border border-gray-300 rounded-lg px-3 py-2"
-                                          placeholder="Enter your clinical observations..."
-                                          th:text="${review != null ? review.notes : ''}"></textarea>
+                            <!-- Repurposed Drugs -->
+                            <div class="form-sec">
+                                <h3>💊 Repurposed Drugs (Optional)</h3>
+                                <div class="check-grid">
+                                    <label th:each="drug : ${masterLists.repurposedDrugs}" class="check">
+                                        <input type="checkbox" name="repurposedDrugs" th:value="${drug}" th:id="'drug_' + ${drug}"
+                                               th:checked="${savedDrugs != null ? savedDrugs.contains(drug) : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.repurposedDrugs != null and physicianProtocol.protocols.repurposedDrugs.contains(drug))}">
+                                        <span th:text="${drug}">Drug</span>
+                                    </label>
+                                </div>
                             </div>
-                            <div>
-                                <h3 class="font-semibold text-gray-800 mb-2">💡 Recommendations</h3>
-                                <textarea name="recommendations" rows="3" 
-                                          class="w-full border border-gray-300 rounded-lg px-3 py-2"
-                                          placeholder="Enter your recommendations for this patient..."
-                                          th:text="${review != null ? review.recommendations : ''}"></textarea>
-                            </div>
-                        </div>
 
-                        <!-- Submit Buttons -->
-                        <div class="flex justify-end space-x-4 pt-4">
-                            <a th:href="@{/dashboard}" class="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
-                                Cancel
-                            </a>
-                            <button type="submit" class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg">
-                                <span th:if="${review == null or review.status.name() != 'COMPLETED'}">✅ Submit Review</span>
-                                <span th:if="${review != null and review.status.name() == 'COMPLETED'}">🔄 Update Review</span>
-                            </button>
-                        </div>
-                    </form>
+                            <!-- Specialty Treatments -->
+                            <div class="form-sec">
+                                <h3>⭐ Specialty Treatments (Your Domain)</h3>
+                                <div class="field">
+                                    <input type="text" name="specialty"
+                                           th:value="${savedSpecialty != null ? savedSpecialty : (physicianProtocol != null and physicianProtocol.protocols != null and physicianProtocol.protocols.specialty != null ? #strings.listJoin(physicianProtocol.protocols.specialty, ', ') : '')}"
+                                           placeholder="e.g., Panchakarma, IV Vit C, etc.">
+                                    <p class="field-hint">Enter specialty treatments specific to your domain (comma separated)</p>
+                                </div>
+                            </div>
+
+                            <!-- Notes & Recommendations -->
+                            <div class="form-sec">
+                                <div class="field">
+                                    <label>📝 Clinical Notes</label>
+                                    <textarea name="notes" rows="3" placeholder="Enter your clinical observations..." th:text="${review != null ? review.notes : ''}"></textarea>
+                                </div>
+                                <div class="field" style="margin-bottom:0">
+                                    <label>💡 Recommendations</label>
+                                    <textarea name="recommendations" rows="3" placeholder="Enter your recommendations for this patient..." th:text="${review != null ? review.recommendations : ''}"></textarea>
+                                </div>
+                            </div>
+
+                            <!-- Submit Buttons -->
+                            <div class="flex justify-between" style="justify-content:flex-end;gap:12px;padding-top:6px">
+                                <a th:href="@{/dashboard}" class="btn btn-ghost">Cancel</a>
+                                <button type="submit" class="btn btn-green">
+                                    <span th:if="${review == null or review.status.name() != 'COMPLETED'}">✅ Submit Review</span>
+                                    <span th:if="${review != null and review.status.name() == 'COMPLETED'}">🔄 Update Review</span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         </div>

@@ -3,114 +3,99 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CancerQR - All Patients</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>CancerQR — All Patients</title>
+    <link rel="stylesheet" th:href="@{/css/cancerqr.css}">
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <!-- Navigation -->
-    <nav class="bg-white shadow-lg">
-        <div class="max-w-7xl mx-auto px-4">
-            <div class="flex justify-between items-center py-4">
-                <div class="flex items-center space-x-4">
-                    <a th:href="@{/dashboard}" class="text-2xl font-bold text-blue-600">🏥 CancerQR</a>
-                    <span class="text-gray-400">|</span>
-                    <span class="text-gray-600">All Patients</span>
-                </div>
-                <a th:href="@{/dashboard}" class="text-blue-600 hover:text-blue-800">
-                    ← Back to Dashboard
-                </a>
+<body>
+    <header class="topbar">
+        <a class="tb-brand" th:href="@{/dashboard}"><div class="tb-mark">CQR</div><span class="tb-name">CancerQR</span></a>
+        <div class="tb-div"></div>
+        <nav class="tb-nav"><span class="tnav active">Patients</span></nav>
+        <div class="tb-right">
+            <div class="tb-user" th:if="${doctor != null}">
+                <div class="tb-uname" th:text="${doctor.fullName}">Dr. Name</div>
+                <div class="tb-urole" th:text="${doctor.domain.displayName}">Department</div>
             </div>
+            <a class="tnav" th:href="@{/dashboard}">← Dashboard</a>
         </div>
-    </nav>
+    </header>
 
-    <div class="max-w-7xl mx-auto px-4 py-8">
+    <div class="page">
         <!-- Flash Messages -->
-        <div th:if="${success}" class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
-            <span th:text="${success}"></span>
+        <div th:if="${success}" class="alert alert-green" role="status">
+            <div class="alert-icon">✅</div><div class="alert-body"><div class="alert-text" th:text="${success}">Success</div></div>
         </div>
-        <div th:if="${error}" class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-6">
-            <span th:text="${error}"></span>
+        <div th:if="${error}" class="alert alert-red" role="alert">
+            <div class="alert-icon">⚠️</div><div class="alert-body"><div class="alert-text" th:text="${error}">Error</div></div>
         </div>
 
-        <div class="flex justify-between items-center mb-6">
-            <h1 class="text-2xl font-bold text-gray-800">👥 <span th:text="${doctor != null and doctor.domain.name() == 'REFERRING_DOCTOR'} ? 'My Patients' : 'All Patients'">All Patients</span></h1>
+        <div class="flex items-center justify-between mb-3">
+            <h1 class="pg-title">👥 <span th:text="${doctor != null and doctor.domain.name() == 'REFERRING_DOCTOR'} ? 'My Patients' : 'All Patients'">All Patients</span></h1>
             <a th:if="${doctor != null and doctor.domain.name() == 'REFERRING_DOCTOR'}"
-               th:href="@{/dashboard/patients/add}"
-               class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
-                + Add Patient
-            </a>
+               th:href="@{/dashboard/patients/add}" class="btn btn-green btn-sm">+ Add Patient</a>
         </div>
 
-        <div class="bg-white rounded-xl shadow-md overflow-hidden">
-            <table class="w-full">
-                <thead class="bg-gray-50">
-                    <tr class="text-left text-gray-600 text-sm">
-                        <th class="px-6 py-4">Patient</th>
-                        <th class="px-6 py-4">Cancer Type</th>
-                        <th class="px-6 py-4">Age</th>
-                        <th class="px-6 py-4">Pain</th>
-                        <th th:if="${doctor != null and doctor.domain.name() != 'REFERRING_DOCTOR'}" class="px-6 py-4">Referred By</th>
-                        <th class="px-6 py-4">Review Progress</th>
-                        <th class="px-6 py-4">Protocol Status</th>
-                        <th class="px-6 py-4">Actions</th>
+        <div class="tbl-wrap">
+            <table class="tbl">
+                <thead>
+                    <tr>
+                        <th>Patient</th>
+                        <th>Cancer Type</th>
+                        <th>Age</th>
+                        <th>Pain</th>
+                        <th th:if="${doctor != null and doctor.domain.name() != 'REFERRING_DOCTOR'}">Referred By</th>
+                        <th>Review Progress</th>
+                        <th>Protocol Status</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr th:each="data : ${patientData}" class="border-t hover:bg-gray-50">
-                        <td class="px-6 py-4">
-                            <div class="font-semibold text-gray-800" 
-                                 th:text="${data.patient.name != null ? data.patient.name : 'Patient #' + data.patient.id.toString().substring(0,8)}">Name</div>
-                            <div class="text-xs text-gray-500" th:text="${data.patient.whatsappNumber}">Phone</div>
+                    <tr th:each="data : ${patientData}">
+                        <td>
+                            <div class="strong" th:text="${data.patient.name != null ? data.patient.name : 'Patient #' + data.patient.id.toString().substring(0,8)}">Name</div>
+                            <div class="text-xs muted" th:text="${data.patient.whatsappNumber}">Phone</div>
                         </td>
-                        <td class="px-6 py-4">
-                            <span class="px-2 py-1 bg-red-100 text-red-600 text-xs rounded-full" 
-                                  th:text="${data.patient.cancerType != null ? data.patient.cancerType : 'Not Set'}">Cancer</span>
+                        <td>
+                            <span class="badge badge-red" th:text="${data.patient.cancerType != null ? data.patient.cancerType : 'Not Set'}">Cancer</span>
                         </td>
-                        <td class="px-6 py-4" th:text="${data.patient.age != null ? data.patient.age : '-'}">45</td>
-                        <td class="px-6 py-4">
+                        <td th:text="${data.patient.age != null ? data.patient.age : '-'}">45</td>
+                        <td>
                             <span th:if="${data.patient.painScale != null}"
                                   th:text="${data.patient.painScale} + '/10'"
-                                  th:class="${data.patient.painScale >= 7 ? 'text-red-600 font-semibold' : 'text-gray-600'}">5/10</span>
+                                  th:class="${data.patient.painScale >= 7 ? 'strong' : ''}"
+                                  th:style="${data.patient.painScale >= 7 ? 'color:var(--red)' : 'color:var(--gray-5)'}">5/10</span>
                             <span th:unless="${data.patient.painScale != null}">-</span>
                         </td>
-                        <td th:if="${doctor != null and doctor.domain.name() != 'REFERRING_DOCTOR'}" class="px-6 py-4">
+                        <td th:if="${doctor != null and doctor.domain.name() != 'REFERRING_DOCTOR'}">
                             <span th:if="${data.patient.referringDoctor != null}"
-                                  class="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full"
-                                  th:text="${data.patient.referringDoctor.fullName}">Dr. Name</span>
-                            <span th:unless="${data.patient.referringDoctor != null}" class="text-gray-400 text-sm">-</span>
+                                  class="badge badge-purple" th:text="${data.patient.referringDoctor.fullName}">Dr. Name</span>
+                            <span th:unless="${data.patient.referringDoctor != null}" class="muted text-sm">-</span>
                         </td>
-                        <td class="px-6 py-4">
-                            <div class="flex items-center space-x-2">
-                                <div class="w-24 bg-gray-200 rounded-full h-2">
-                                    <div class="bg-green-500 h-2 rounded-full" 
-                                         th:style="'width: ' + (${data.reviewStatus.completed} * 12.5) + '%'"></div>
+                        <td>
+                            <div class="flex items-center gap-2">
+                                <div class="bar" style="width:90px">
+                                    <span th:style="'width: ' + (${data.reviewStatus.completed} * 12.5) + '%'"></span>
                                 </div>
-                                <span class="text-xs text-gray-500" th:text="${data.reviewStatus.completed} + '/8'">0/8</span>
+                                <span class="text-xs muted" th:text="${data.reviewStatus.completed} + '/8'">0/8</span>
                             </div>
                         </td>
-                        <td class="px-6 py-4">
-                            <span th:if="${data.hasProtocol and data.protocolStatus.name() == 'APPROVED'}" 
-                                  class="px-2 py-1 bg-green-100 text-green-600 text-xs rounded-full">Approved</span>
-                            <span th:if="${data.hasProtocol and data.protocolStatus.name() == 'PENDING_APPROVAL'}" 
-                                  class="px-2 py-1 bg-yellow-100 text-yellow-600 text-xs rounded-full">Pending Approval</span>
-                            <span th:unless="${data.hasProtocol}" 
-                                  class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">In Review</span>
+                        <td>
+                            <span th:if="${data.hasProtocol and data.protocolStatus.name() == 'APPROVED'}" class="badge badge-green">Approved</span>
+                            <span th:if="${data.hasProtocol and data.protocolStatus.name() == 'PENDING_APPROVAL'}" class="badge badge-gold">Pending Approval</span>
+                            <span th:unless="${data.hasProtocol}" class="badge badge-gray">In Review</span>
                         </td>
-                        <td class="px-6 py-4">
-                            <div class="flex space-x-2">
-                                <a th:href="@{/dashboard/patient/{id}(id=${data.patient.id})}"
-                                   class="text-blue-600 hover:text-blue-800 text-sm">Review</a>
-                                <a th:if="${data.hasProtocol}" 
-                                   th:href="@{/dashboard/protocol/{id}(id=${data.patient.id})}"
-                                   class="text-green-600 hover:text-green-800 text-sm">Protocol</a>
+                        <td>
+                            <div class="flex gap-2">
+                                <a th:href="@{/dashboard/patient/{id}(id=${data.patient.id})}" class="btn btn-outline-blue btn-sm">Review</a>
+                                <a th:if="${data.hasProtocol}" th:href="@{/dashboard/protocol/{id}(id=${data.patient.id})}" class="btn btn-ghost btn-sm">Protocol</a>
                             </div>
                         </td>
                     </tr>
                 </tbody>
             </table>
 
-            <div th:if="${#lists.isEmpty(patientData)}" class="text-center py-12 text-gray-500">
-                <p class="text-4xl mb-2">📭</p>
+            <div th:if="${#lists.isEmpty(patientData)}" class="empty">
+                <span class="empty-emoji">📭</span>
                 <p>No patients yet.</p>
             </div>
         </div>

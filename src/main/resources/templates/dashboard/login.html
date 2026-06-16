@@ -3,48 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CancerQR - Tumor Board Login</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>CancerQR — Tumor Board Sign In</title>
+    <link rel="stylesheet" th:href="@{/css/cancerqr.css}">
 </head>
-<body class="bg-gradient-to-br from-blue-900 to-purple-900 min-h-screen flex items-center justify-center">
-    <div class="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-md">
-        <!-- Logo -->
-        <div class="text-center mb-8">
-            <h1 class="text-3xl font-bold text-gray-800">🏥 CancerQR</h1>
-            <p class="text-gray-500 mt-2">Precision Oncology Tumor Board</p>
-        </div>
+<body>
+    <div class="login-view">
+        <div class="login-shell">
+            <div class="login-wrap">
+                <!-- Brand -->
+                <div class="login-brand">
+                    <div class="login-logo">
+                        <div class="login-logo-mark">CQR</div>
+                        <span class="login-logo-name">CancerQR</span>
+                    </div>
+                    <div class="login-tagline">Precision Oncology Tumor Board</div>
+                </div>
 
-        <!-- Error Message (Spring Security appends ?error to the URL on failed login) -->
-        <div th:if="${param.error}" class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-            <span>Invalid username or password.</span>
-        </div>
+                <div class="login-box">
+                    <div class="login-box-h">Sign in</div>
+                    <div class="login-box-s">Clinician &amp; administrator access</div>
 
-        <!-- Logout Confirmation -->
-        <div th:if="${param.logout}" class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
-            <span>You have been signed out.</span>
-        </div>
+                    <!-- Spring Security appends ?error / ?logout to the URL -->
+                    <div th:if="${param.error}" class="alert alert-red" role="alert">
+                        <div class="alert-icon">⚠️</div>
+                        <div class="alert-body">
+                            <div class="alert-title">Sign-in failed</div>
+                            <div class="alert-text">Invalid username or password.</div>
+                        </div>
+                    </div>
+                    <div th:if="${param.logout}" class="alert alert-green" role="status">
+                        <div class="alert-icon">✅</div>
+                        <div class="alert-body">
+                            <div class="alert-title">Signed out</div>
+                            <div class="alert-text">You have been signed out.</div>
+                        </div>
+                    </div>
 
-        <!-- Login Form -->
-        <form th:action="@{/dashboard/login}" method="post" class="space-y-6">
-            <div>
-                <label class="block text-gray-700 text-sm font-semibold mb-2">Username</label>
-                <input type="text" name="username" required
-                       class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                       placeholder="Enter your username">
+                    <form th:action="@{/dashboard/login}" method="post">
+                        <div class="field">
+                            <label for="username">Username</label>
+                            <input type="text" id="username" name="username" required autocomplete="username"
+                                   placeholder="Enter your username">
+                        </div>
+                        <div class="field">
+                            <label for="password">Password</label>
+                            <input type="password" id="password" name="password" required autocomplete="current-password"
+                                   placeholder="Enter your password">
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-lg btn-block">Sign In</button>
+                    </form>
+
+                    <div class="login-alt">
+                        Patient? <a th:href="@{/portal/login}">Go to the patient portal</a>
+                    </div>
+                </div>
+
+                <div class="login-footer">CancerQR · Confidential clinical system · Authorised access only</div>
             </div>
-
-            <div>
-                <label class="block text-gray-700 text-sm font-semibold mb-2">Password</label>
-                <input type="password" name="password" required
-                       class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                       placeholder="Enter your password">
-            </div>
-
-            <button type="submit"
-                    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-lg transition duration-200">
-                Sign In
-            </button>
-        </form>
+        </div>
     </div>
 </body>
 </html>

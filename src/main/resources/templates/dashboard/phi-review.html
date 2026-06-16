@@ -4,94 +4,86 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CancerQR — PHI Review Queue</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" th:href="@{/css/cancerqr.css}">
 </head>
-<body class="bg-gray-100 min-h-screen">
-
-<nav class="bg-white shadow-lg">
-    <div class="max-w-7xl mx-auto px-4">
-        <div class="flex justify-between items-center py-4">
-            <div class="flex items-center space-x-4">
-                <a th:href="@{/dashboard}" class="text-2xl font-bold text-blue-600">🏥 CancerQR</a>
-                <span class="text-gray-400">|</span>
-                <span class="text-gray-600">PHI Review Queue</span>
+<body>
+    <header class="topbar">
+        <a class="tb-brand" th:href="@{/dashboard}"><div class="tb-mark">CQR</div><span class="tb-name">CancerQR</span></a>
+        <div class="tb-div"></div>
+        <nav class="tb-nav"><span class="tnav active">PHI Review</span></nav>
+        <div class="tb-right">
+            <div class="tb-user" th:if="${admin != null}">
+                <div class="tb-uname" th:text="${admin.fullName}">Admin</div>
+                <div class="tb-urole" th:text="${admin.domain.displayName}">Administrator</div>
             </div>
-            <a th:href="@{/dashboard}" class="text-blue-600 hover:text-blue-800">← Back to Dashboard</a>
+            <a class="tnav" th:href="@{/dashboard}">← Dashboard</a>
         </div>
-    </div>
-</nav>
+    </header>
 
-<div class="max-w-7xl mx-auto px-4 py-8">
+    <div class="page">
+        <div th:if="${success}" class="alert alert-green" role="status">
+            <div class="alert-icon">✅</div><div class="alert-body"><div class="alert-text" th:text="${success}">Success</div></div>
+        </div>
+        <div th:if="${error}" class="alert alert-red" role="alert">
+            <div class="alert-icon">⚠️</div><div class="alert-body"><div class="alert-text" th:text="${error}">Error</div></div>
+        </div>
 
-    <div th:if="${success}" class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4">
-        <span th:text="${success}"></span>
-    </div>
-    <div th:if="${error}" class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-        <span th:text="${error}"></span>
-    </div>
+        <h1 class="pg-title">Reports Awaiting PHI Review</h1>
+        <div class="pg-sub">
+            Currently <span class="badge badge-gold" th:text="${#lists.size(pendingReports)}">0</span> pending
+        </div>
 
-    <div class="bg-white rounded-xl shadow-md p-6 mb-6">
-        <h2 class="text-xl font-bold text-gray-800 mb-2">Reports Awaiting PHI Review</h2>
-        <p class="text-gray-500 text-sm mb-4">
-            Every uploaded report must be reviewed before tumor board reviewers can open it.
-            Open the file, confirm it contains <strong>no patient names, MRNs, hospital addresses,
-            or other identifying header/footer information</strong>, then either approve it
-            (clear of PHI) or flag it for redaction.
-        </p>
-        <p class="text-gray-500 text-xs italic">
-            Currently <span th:text="${#lists.size(pendingReports)}">0</span> pending.
-        </p>
-    </div>
-
-    <div th:if="${#lists.isEmpty(pendingReports)}"
-         class="bg-white rounded-xl shadow-md p-12 text-center text-gray-500">
-        🎉 No reports pending PHI review.
-    </div>
-
-    <div th:if="${not #lists.isEmpty(pendingReports)}" class="space-y-4">
-        <div th:each="report : ${pendingReports}"
-             class="bg-white rounded-xl shadow-md p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div class="flex-1">
-                <div class="flex items-center gap-2">
-                    <span class="font-semibold text-gray-800" th:text="${report.reportType.displayName}">Type</span>
-                    <span class="text-xs text-gray-500" th:text="'(' + ${report.contentType} + ')'">(content-type)</span>
-                </div>
-                <div class="text-sm text-gray-600 mt-1">
-                    Patient: <code class="bg-gray-100 px-1 rounded" th:text="${report.patient.id}">id</code>
-                </div>
-                <div class="text-sm text-gray-600">
-                    File: <span th:text="${report.originalFileName}">name.pdf</span>
-                    · Uploaded <span th:text="${#temporals.format(report.uploadedAt, 'yyyy-MM-dd HH:mm')}">date</span>
-                    · <span th:text="${report.fileSizeBytes} ?: 'unknown'">size</span> bytes
+        <div class="alert alert-blue mb-3">
+            <div class="alert-icon">🛡️</div>
+            <div class="alert-body">
+                <div class="alert-title">Reviewer instructions</div>
+                <div class="alert-text">
+                    Every uploaded report must be reviewed before tumor board reviewers can open it.
+                    Open the file, confirm it contains <strong>no patient names, MRNs, hospital addresses,
+                    or other identifying header/footer information</strong>, then either approve it
+                    (clear of PHI) or flag it for redaction.
                 </div>
             </div>
+        </div>
 
-            <div class="flex items-center gap-2">
-                <a th:href="@{/dashboard/reports/{id}/view(id=${report.id})}"
-                   target="_blank"
-                   class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50">
-                    Open
-                </a>
+        <div th:if="${#lists.isEmpty(pendingReports)}" class="card">
+            <div class="empty"><span class="empty-emoji">🎉</span><p>No reports pending PHI review.</p></div>
+        </div>
 
-                <form th:action="@{/dashboard/reports/{id}/phi-review(id=${report.id})}" method="post" class="inline">
-                    <input type="hidden" name="decision" value="APPROVED">
-                    <button type="submit"
-                            class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium">
-                        Approve (PHI-free)
-                    </button>
-                </form>
+        <div th:if="${not #lists.isEmpty(pendingReports)}">
+            <div th:each="report : ${pendingReports}" class="card">
+                <div class="card-body flex items-center justify-between gap-3 flex-wrap">
+                    <div class="flex-1">
+                        <div class="row-name">
+                            <span th:text="${report.reportType.displayName}">Type</span>
+                            <span class="badge badge-gray" th:text="${report.contentType}">content-type</span>
+                        </div>
+                        <div class="row-meta">
+                            <span>Patient: <code class="mono" style="background:var(--gray-1);padding:1px 6px;border-radius:6px" th:text="${report.patient.id}">id</code></span>
+                        </div>
+                        <div class="row-time">
+                            File: <span th:text="${report.originalFileName}">name.pdf</span>
+                            · Uploaded <span th:text="${#temporals.format(report.uploadedAt, 'yyyy-MM-dd HH:mm')}">date</span>
+                            · <span th:text="${report.fileSizeBytes} ?: 'unknown'">size</span> bytes
+                        </div>
+                    </div>
 
-                <form th:action="@{/dashboard/reports/{id}/phi-review(id=${report.id})}" method="post" class="inline">
-                    <input type="hidden" name="decision" value="REDACTION_NEEDED">
-                    <button type="submit"
-                            class="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium">
-                        Flag for redaction
-                    </button>
-                </form>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <a th:href="@{/dashboard/reports/{id}/view(id=${report.id})}" target="_blank" class="btn btn-ghost btn-sm">Open</a>
+
+                        <form th:action="@{/dashboard/reports/{id}/phi-review(id=${report.id})}" method="post">
+                            <input type="hidden" name="decision" value="APPROVED">
+                            <button type="submit" class="btn btn-green btn-sm">Approve (PHI-free)</button>
+                        </form>
+
+                        <form th:action="@{/dashboard/reports/{id}/phi-review(id=${report.id})}" method="post">
+                            <input type="hidden" name="decision" value="REDACTION_NEEDED">
+                            <button type="submit" class="btn btn-sm" style="background:var(--gold);color:#fff">Flag for redaction</button>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
-
-</div>
 </body>
 </html>
