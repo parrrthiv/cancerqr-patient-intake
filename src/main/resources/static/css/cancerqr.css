@@ -168,7 +168,23 @@ a.kpi-card:hover{border-color:var(--blue);box-shadow:0 4px 20px rgba(26,86,219,.
 .bar{width:100%;height:8px;background:var(--gray-2);border-radius:999px;overflow:hidden}
 .bar > span{display:block;height:100%;background:var(--green);border-radius:999px}
 
+/* ---- patient-review layout ----------------------------------------------- */
+.split{display:grid;grid-template-columns:1fr 2fr;gap:18px;align-items:start}
+.data-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0}
+.data-label{font-size:11px;font-weight:700;color:var(--gray-5);text-transform:uppercase;letter-spacing:.05em}
+.data-val{font-size:14px;font-weight:700;color:var(--gray-9)}
+.form-sec{padding:14px 0;border-bottom:1px solid var(--gray-1)}
+.form-sec:last-child{border-bottom:0}
+.form-sec h3{font-size:13px;font-weight:800;color:var(--ink);margin-bottom:10px}
+.check-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px 14px}
+.check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--gray-9)}
+.check input{width:16px;height:16px;flex-shrink:0;accent-color:var(--blue)}
+.msg{background:var(--gray-0);border:1px solid var(--gray-1);border-radius:var(--r-sm);padding:10px 12px;margin-bottom:8px}
+.mini-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.summary{white-space:pre-wrap;font-size:13px;color:var(--gray-9);background:var(--gray-0);border:1px solid var(--gray-1);border-radius:var(--r-sm);padding:14px;font-family:var(--font)}
+
 /* ---- responsive ---------------------------------------------------------- */
+@media(max-width:980px){.split{grid-template-columns:1fr}}
 @media(max-width:880px){
   .kpi-grid{grid-template-columns:repeat(2,1fr)}
   .grid-2,.grid-3{grid-template-columns:1fr}
