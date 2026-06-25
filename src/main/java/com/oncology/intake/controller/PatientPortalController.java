@@ -184,6 +184,7 @@ public class PatientPortalController {
         model.addAttribute("steps", status.steps());
         model.addAttribute("reports", status.reports());
         model.addAttribute("guidance", status.dietGuidance());
+        model.addAttribute("carePlan", status.carePlan());
         model.addAttribute("reviewsCompleted", status.reviewsCompleted());
         model.addAttribute("reviewsTotal", status.reviewsTotal());
         model.addAttribute("protocolReady", status.protocolReady());

@@ -128,8 +128,12 @@
                       th:action="@{/dashboard/protocol/{id}/approve(id=${protocol.id})}" method="post">
                     <button type="submit" class="btn btn-green btn-lg">✅ Approve Protocol</button>
                 </form>
-                <button th:if="${protocol.status.name() == 'APPROVED'}" class="btn btn-primary btn-lg"
-                        onclick="alert('Send to patient via WhatsApp - Coming soon!')">📤 Send to Patient</button>
+                <form th:if="${canFinalize and protocol.status.name() == 'APPROVED'}"
+                      th:action="@{/dashboard/protocol/{id}/send(id=${protocol.id})}" method="post">
+                    <button type="submit" class="btn btn-primary btn-lg">📤 Send to Patient</button>
+                </form>
+                <span th:if="${protocol.status.name() == 'SENT'}" class="badge badge-blue"
+                      style="align-self:center">📤 Sent to patient</span>
             </div>
         </div>
     </div>
