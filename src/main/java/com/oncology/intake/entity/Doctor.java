@@ -72,6 +72,25 @@ public class Doctor {
     @Builder.Default
     private Boolean active = true;
 
+    // Capability flags (PR: doctor capabilities, V11) — decoupled from the single
+    // PhysicianDomain role so one account can review + finalize + intake.
+    //   canReview   — sits on the tumor board for `domain`
+    //   canIntake   — may perform patient intake (formerly the REFERRING_DOCTOR role)
+    //   canFinalize — may approve/finalize the final protocol (formerly ADMIN-only)
+    // A "Doctor" = canReview+canFinalize+canIntake; a "medicine participant" =
+    // canReview only; ADMIN stays the separate sys-admin (manage doctors + PHI).
+    @Column(name = "can_review", nullable = false)
+    @Builder.Default
+    private Boolean canReview = false;
+
+    @Column(name = "can_intake", nullable = false)
+    @Builder.Default
+    private Boolean canIntake = false;
+
+    @Column(name = "can_finalize", nullable = false)
+    @Builder.Default
+    private Boolean canFinalize = false;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 

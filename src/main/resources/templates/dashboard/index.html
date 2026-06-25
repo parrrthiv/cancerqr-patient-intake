@@ -19,7 +19,7 @@
             <a th:if="${doctor.domain.name() != 'REFERRING_DOCTOR'}" class="tnav" th:href="@{/dashboard/patients}">Patients</a>
             <a th:if="${doctor.domain.name() == 'ADMIN'}" class="tnav" th:href="@{/dashboard/doctors}">Doctors</a>
             <a th:if="${doctor.domain.name() == 'ADMIN'}" class="tnav" th:href="@{/dashboard/reports/phi-review}">PHI Review</a>
-            <a th:if="${doctor.domain.name() == 'REFERRING_DOCTOR'}" class="tnav" th:href="@{/dashboard/patients/add}">+ Add Patient</a>
+            <a th:if="${doctor.canIntake}" class="tnav" th:href="@{/dashboard/patients/add}">+ Add Patient</a>
         </nav>
         <div class="tb-right">
             <div class="tb-user">

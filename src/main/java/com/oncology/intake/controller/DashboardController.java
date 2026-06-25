@@ -509,16 +509,20 @@ public class DashboardController {
         model.addAttribute("patient", patient);
         model.addAttribute("protocol", protocol);
         model.addAttribute("reviews", reviews);
+        // Only finalize-capable doctors see the approve/send actions (the routes
+        // are CAN_FINALIZE-gated regardless).
+        model.addAttribute("canFinalize", principal.isCanFinalize());
 
         return "dashboard/protocol";
     }
 
-    // ── Add Patient (Referring Doctors Only) ─────────────────────────────
-    // Role enforced by SecurityConfig; helpers keep belt-and-braces checks.
+    // ── Add Patient (intake-capable doctors) ────────────────────────────
+    // CAN_INTAKE enforced by SecurityConfig; helpers keep belt-and-braces checks.
+    // The intaking doctor is recorded as the patient's referringDoctor.
 
     @GetMapping("/patients/add")
     public String addPatientForm(@AuthenticationPrincipal DoctorPrincipal principal, Model model) {
-        Doctor doctor = requireReferringDoctor(principal);
+        Doctor doctor = requireIntakeCapable(principal);
         if (doctor == null) {
             return "redirect:/dashboard";
         }
@@ -538,7 +542,7 @@ public class DashboardController {
                              @RequestParam(name = "consentAttested", required = false) Boolean consentAttested,
                              @AuthenticationPrincipal DoctorPrincipal principal,
                              RedirectAttributes redirectAttributes) {
-        Doctor doctor = requireReferringDoctor(principal);
+        Doctor doctor = requireIntakeCapable(principal);
         if (doctor == null) {
             return "redirect:/dashboard";
         }
@@ -637,8 +641,9 @@ public class DashboardController {
         return "redirect:/dashboard/patients";
     }
 
-    private Doctor requireReferringDoctor(DoctorPrincipal principal) {
-        if (principal == null || principal.getDomain() != PhysicianDomain.REFERRING_DOCTOR) {
+    /** A doctor who may perform patient intake (CAN_INTAKE capability). */
+    private Doctor requireIntakeCapable(DoctorPrincipal principal) {
+        if (principal == null || !principal.isCanIntake()) {
             return null;
         }
         return doctorRepository.findById(principal.getId()).orElse(null);
@@ -713,6 +718,9 @@ public class DashboardController {
                                @RequestParam PhysicianDomain domain,
                                @RequestParam(required = false) String email,
                                @RequestParam(required = false) String phone,
+                               @RequestParam(name = "canReview", required = false) Boolean canReview,
+                               @RequestParam(name = "canIntake", required = false) Boolean canIntake,
+                               @RequestParam(name = "canFinalize", required = false) Boolean canFinalize,
                                @AuthenticationPrincipal DoctorPrincipal principal,
                                RedirectAttributes redirectAttributes) {
         Doctor admin = requireAdmin(principal);
@@ -742,7 +750,10 @@ public class DashboardController {
                 .domain(domain)
                 .email(email)
                 .phone(phone)
-                .active(true);
+                .active(true)
+                .canReview(Boolean.TRUE.equals(canReview))
+                .canIntake(Boolean.TRUE.equals(canIntake))
+                .canFinalize(Boolean.TRUE.equals(canFinalize));
 
         if (domain == PhysicianDomain.REFERRING_DOCTOR) {
             builder.referralCode(generateUniqueReferralCode());
@@ -795,6 +806,9 @@ public class DashboardController {
                                @RequestParam PhysicianDomain domain,
                                @RequestParam(required = false) String email,
                                @RequestParam(required = false) String phone,
+                               @RequestParam(name = "canReview", required = false) Boolean canReview,
+                               @RequestParam(name = "canIntake", required = false) Boolean canIntake,
+                               @RequestParam(name = "canFinalize", required = false) Boolean canFinalize,
                                @AuthenticationPrincipal DoctorPrincipal principal,
                                RedirectAttributes redirectAttributes) {
         Doctor admin = requireAdmin(principal);
@@ -841,6 +855,9 @@ public class DashboardController {
         }
         doctor.setEmail(email);
         doctor.setPhone(phone);
+        doctor.setCanReview(Boolean.TRUE.equals(canReview));
+        doctor.setCanIntake(Boolean.TRUE.equals(canIntake));
+        doctor.setCanFinalize(Boolean.TRUE.equals(canFinalize));
         doctorRepository.save(doctor);
 
         log.info("Admin id={} updated doctor id={} domain={}", admin.getId(), doctor.getId(), domain);
@@ -928,29 +945,28 @@ public class DashboardController {
     }
 
     /**
-     * Approve final protocol — admin only.
+     * Approve (finalize) the final protocol — any doctor with the finalize
+     * capability (CAN_FINALIZE), not ADMIN-only anymore.
      *
-     * Belt-and-braces with SecurityConfig's path-level role check; either alone
-     * would suffice, but having both means a future SecurityConfig regression
-     * cannot accidentally open this up.
+     * Belt-and-braces with SecurityConfig's path-level {@code CAN_FINALIZE} gate;
+     * either alone would suffice, but having both means a future SecurityConfig
+     * regression cannot accidentally open this up.
      */
     @PostMapping("/protocol/{protocolId}/approve")
     public String approveProtocol(@PathVariable UUID protocolId,
                                   @AuthenticationPrincipal DoctorPrincipal principal,
                                   RedirectAttributes redirectAttributes) {
-        if (principal == null || principal.getDomain() != PhysicianDomain.ADMIN) {
-            log.warn("Non-admin doctor id={} domain={} attempted to approve protocol id={}",
-                    principal == null ? null : principal.getId(),
-                    principal == null ? null : principal.getDomain(),
-                    protocolId);
+        if (principal == null || !principal.isCanFinalize()) {
+            log.warn("Doctor id={} without CAN_FINALIZE attempted to approve protocol id={}",
+                    principal == null ? null : principal.getId(), protocolId);
             redirectAttributes.addFlashAttribute("error",
-                    "Only administrators can approve final protocols.");
+                    "You do not have permission to finalize protocols.");
             return "redirect:/dashboard";
         }
 
         FinalProtocol protocol = tumorBoardService.approveFinalProtocol(protocolId);
 
-        log.info("Admin id={} approved protocol id={} for patient id={}",
+        log.info("Doctor id={} approved protocol id={} for patient id={}",
                 principal.getId(), protocolId, protocol.getPatient().getId());
         redirectAttributes.addFlashAttribute("success", "Protocol approved!");
         return "redirect:/dashboard/protocol/" + protocol.getPatient().getId();

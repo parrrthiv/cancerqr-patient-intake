@@ -124,7 +124,7 @@
 
             <!-- Actions -->
             <div class="flex justify-between" style="justify-content:flex-end;gap:12px">
-                <form th:if="${protocol.status.name() == 'PENDING_APPROVAL'}"
+                <form th:if="${canFinalize and protocol.status.name() == 'PENDING_APPROVAL'}"
                       th:action="@{/dashboard/protocol/{id}/approve(id=${protocol.id})}" method="post">
                     <button type="submit" class="btn btn-green btn-lg">✅ Approve Protocol</button>
                 </form>

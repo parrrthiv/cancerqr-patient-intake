@@ -11,11 +11,12 @@ import org.springframework.stereotype.Service;
 /**
  * Single source of truth for "can this doctor see this patient / report?".
  *
- * Access policy:
- *  - {@code ADMIN}             — sees everything.
- *  - {@code REFERRING_DOCTOR}  — sees only patients they personally referred.
- *  - any of the 8 tumor-board domains — sees only patients that have a tumor
- *    board review on file (i.e. patients formally submitted to the board).
+ * Access policy (capability-union — a doctor may hold several):
+ *  - {@code ADMIN} (sys-admin) or any {@code canFinalize} doctor — sees everything.
+ *  - {@code canReview} — sees patients that have a tumor board review on file
+ *    (i.e. patients formally submitted to the board).
+ *  - {@code canIntake} — sees only the patients they personally intook
+ *    (referringDoctor == them).
  *
  * Without these checks, any logged-in doctor could fetch any patient by UUID,
  * and any logged-in doctor could fetch any report by UUID — regardless of
@@ -35,18 +36,26 @@ public class PatientAccessService {
             return false;
         }
 
-        PhysicianDomain domain = doctor.getDomain();
-        if (domain == null) {
-            return false;
-        }
+        // Capability-union (PR: doctor capabilities). A doctor may hold several
+        // capabilities; visibility is the union of what each grants.
 
-        return switch (domain) {
-            case ADMIN -> true;
-            case REFERRING_DOCTOR -> patient.getReferringDoctor() != null
-                    && doctor.getId().equals(patient.getReferringDoctor().getId());
-            // The 8 tumor-board domains: see patients in the board queue only.
-            default -> !reviewRepository.findByPatientId(patient.getId()).isEmpty();
-        };
+        // Sys-admin and any finalize-capable doctor oversee every case.
+        if (doctor.getDomain() == PhysicianDomain.ADMIN
+                || Boolean.TRUE.equals(doctor.getCanFinalize())) {
+            return true;
+        }
+        // Reviewers see patients that are on the tumor board (have a review on file).
+        if (Boolean.TRUE.equals(doctor.getCanReview())
+                && !reviewRepository.findByPatientId(patient.getId()).isEmpty()) {
+            return true;
+        }
+        // Intake doctors see the patients they themselves intook.
+        if (Boolean.TRUE.equals(doctor.getCanIntake())
+                && patient.getReferringDoctor() != null
+                && doctor.getId().equals(patient.getReferringDoctor().getId())) {
+            return true;
+        }
+        return false;
     }
 
     public boolean canViewReport(Doctor doctor, Report report) {
