@@ -69,6 +69,18 @@ public class DataInitializer {
         if (doctorRepository.existsByUsername(username)) {
             return;
         }
+        // Capability seed mirrors V11: physician oncology domains are full Doctors
+        // (review+intake+finalize); integrative domains are medicine participants
+        // (review only); ADMIN finalizes.
+        boolean physician = domain == PhysicianDomain.MEDICAL_ONCOLOGY
+                || domain == PhysicianDomain.SURGICAL_ONCOLOGY
+                || domain == PhysicianDomain.RADIATION_ONCOLOGY
+                || domain == PhysicianDomain.PRECISION_ONCOLOGY
+                || domain == PhysicianDomain.PALLIATIVE_CARE;
+        boolean reviewer = physician
+                || domain == PhysicianDomain.DIETICIAN_NUTRITION
+                || domain == PhysicianDomain.AYURVEDA_INTEGRATIVE
+                || domain == PhysicianDomain.FUNCTIONAL_MEDICINE;
         Doctor doctor = Doctor.builder()
                 .username(username)
                 .password(passwordEncoder.encode(plaintextPassword))
@@ -76,6 +88,9 @@ public class DataInitializer {
                 .domain(domain)
                 .email(username + "@cancerqr.in")
                 .active(true)
+                .canReview(reviewer)
+                .canIntake(physician)
+                .canFinalize(physician || domain == PhysicianDomain.ADMIN)
                 .build();
         doctorRepository.save(doctor);
         log.debug("Created doctor: id={} domain={}", doctor.getId(), domain);
@@ -94,6 +109,7 @@ public class DataInitializer {
                 .email(username + "@cancerqr.in")
                 .referralCode(referralCode)
                 .active(true)
+                .canIntake(true)   // referring doctors do intake only
                 .build();
         doctorRepository.save(doctor);
         log.debug("Created referring doctor: id={} code={}", doctor.getId(), referralCode);

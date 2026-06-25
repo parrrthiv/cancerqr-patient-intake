@@ -22,12 +22,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 /**
- * Verifies the IDOR-prevention rules in {@link PatientAccessService}.
+ * Verifies the IDOR-prevention rules in {@link PatientAccessService} under the
+ * capability model (PR: doctor capabilities): visibility is the UNION of what a
+ * doctor's capabilities grant —
+ *  - ADMIN (sys-admin) or canFinalize → all patients,
+ *  - canReview → patients with a tumor-board review on file,
+ *  - canIntake → only patients they themselves intook.
  *
- * <p>Every case here corresponds to a behaviour the dashboard currently relies on
- * to keep doctors out of each other's patients. A regression in
- * {@code PatientAccessService} is the most likely way to silently re-open the
- * IDOR holes that PRs 3 and 5 closed.
+ * <p>A regression here is the most likely way to silently re-open the IDOR holes
+ * that PRs 3/5 closed, so each capability path is pinned.
  */
 @ExtendWith(MockitoExtension.class)
 class PatientAccessServiceTest {
@@ -43,52 +46,61 @@ class PatientAccessServiceTest {
         @Test
         @DisplayName("ADMIN sees every patient")
         void adminSeesAll() {
-            Doctor admin = doctor(PhysicianDomain.ADMIN);
-            Patient p = patientWithReferringDoctor(doctor(PhysicianDomain.REFERRING_DOCTOR));
-
-            assertTrue(service.canViewPatient(admin, p));
+            Patient p = patientWithReferringDoctor(intakeOnly());
+            assertTrue(service.canViewPatient(admin(), p));
         }
 
         @Test
-        @DisplayName("REFERRING_DOCTOR sees only their own patients")
-        void referringDoctorSeesOwnOnly() {
-            Doctor me = doctor(PhysicianDomain.REFERRING_DOCTOR);
-            Doctor other = doctor(PhysicianDomain.REFERRING_DOCTOR);
-
-            assertTrue(service.canViewPatient(me, patientWithReferringDoctor(me)),
-                    "Doctor sees their own patient");
-            assertFalse(service.canViewPatient(me, patientWithReferringDoctor(other)),
-                    "Doctor cannot see another doctor's patient");
-            assertFalse(service.canViewPatient(me, patientWithReferringDoctor(null)),
-                    "Doctor cannot see patient with no referring doctor recorded");
+        @DisplayName("a finalize-capable doctor sees every patient (even with no reviews)")
+        void finalizerSeesAll() {
+            // physician() has canFinalize=true; patient has no reviews → still visible.
+            assertTrue(service.canViewPatient(physician(), patient()));
         }
 
         @Test
-        @DisplayName("tumor-board domain sees patients with at least one review on file")
-        void tumorBoardSeesPatientsInQueue() {
-            Doctor medicalOnc = doctor(PhysicianDomain.MEDICAL_ONCOLOGY);
+        @DisplayName("a reviewer (canReview) sees patients that have a review on file")
+        void reviewerSeesInQueue() {
+            Doctor reviewer = reviewer();
             Patient p = patient();
             when(reviewRepository.findByPatientId(p.getId()))
                     .thenReturn(List.of(new TumorBoardReview()));
-
-            assertTrue(service.canViewPatient(medicalOnc, p));
+            assertTrue(service.canViewPatient(reviewer, p));
         }
 
         @Test
-        @DisplayName("tumor-board domain cannot see patients with zero reviews")
-        void tumorBoardCannotSeeUnreviewedPatient() {
-            Doctor radOnc = doctor(PhysicianDomain.RADIATION_ONCOLOGY);
+        @DisplayName("a reviewer cannot see patients with zero reviews")
+        void reviewerCannotSeeUnreviewed() {
+            Doctor reviewer = reviewer();
             Patient p = patient();
             when(reviewRepository.findByPatientId(p.getId())).thenReturn(List.of());
+            assertFalse(service.canViewPatient(reviewer, p));
+        }
 
-            assertFalse(service.canViewPatient(radOnc, p));
+        @Test
+        @DisplayName("an intake-only doctor sees only the patients they intook")
+        void intakeDoctorSeesOwnOnly() {
+            Doctor me = intakeOnly();
+            Doctor other = intakeOnly();
+            assertTrue(service.canViewPatient(me, patientWithReferringDoctor(me)),
+                    "sees their own intook patient");
+            assertFalse(service.canViewPatient(me, patientWithReferringDoctor(other)),
+                    "cannot see another doctor's patient");
+            assertFalse(service.canViewPatient(me, patientWithReferringDoctor(null)),
+                    "cannot see a patient with no referring doctor recorded");
+        }
+
+        @Test
+        @DisplayName("a doctor with no capabilities sees nothing")
+        void noCapabilitiesSeesNothing() {
+            Doctor none = doctor(PhysicianDomain.MEDICAL_ONCOLOGY); // all flags false
+            assertFalse(service.canViewPatient(none, patientWithReferringDoctor(none)));
         }
 
         @Test
         @DisplayName("null doctor or null patient denies access")
         void nullsDeny() {
             assertFalse(service.canViewPatient(null, patient()));
-            assertFalse(service.canViewPatient(doctor(PhysicianDomain.ADMIN), null));
+            assertFalse(service.canViewPatient(admin(), null));
             assertFalse(service.canViewPatient(null, null));
         }
     }
@@ -100,72 +112,90 @@ class PatientAccessServiceTest {
         @Test
         @DisplayName("delegates to canViewPatient via report.patient")
         void delegatesToPatient() {
-            Doctor admin = doctor(PhysicianDomain.ADMIN);
-            Patient p = patient();
             Report r = new Report();
-            r.setPatient(p);
-
-            assertTrue(service.canViewReport(admin, r));
+            r.setPatient(patient());
+            assertTrue(service.canViewReport(admin(), r));
         }
 
         @Test
         @DisplayName("null report denies access")
         void nullReportDenies() {
-            assertFalse(service.canViewReport(doctor(PhysicianDomain.ADMIN), null));
+            assertFalse(service.canViewReport(admin(), null));
         }
 
         @Test
         @DisplayName("report with null patient denies access")
         void reportWithoutPatientDenies() {
-            Report orphan = new Report();
-            assertFalse(service.canViewReport(doctor(PhysicianDomain.ADMIN), orphan));
+            assertFalse(service.canViewReport(admin(), new Report()));
         }
 
         @Test
-        @DisplayName("tumor-board reviewer sees an APPROVED report for an in-queue patient")
+        @DisplayName("reviewer sees an APPROVED report for an in-queue patient")
         void reviewerSeesApprovedReport() {
-            Doctor medicalOnc = doctor(PhysicianDomain.MEDICAL_ONCOLOGY);
+            Doctor reviewer = reviewer();
             Patient p = patient();
             when(reviewRepository.findByPatientId(p.getId()))
                     .thenReturn(List.of(new TumorBoardReview()));
-
-            assertTrue(service.canViewReport(medicalOnc, report(p, Report.PhiReviewStatus.APPROVED)));
+            assertTrue(service.canViewReport(reviewer, report(p, Report.PhiReviewStatus.APPROVED)));
         }
 
         @Test
-        @DisplayName("tumor-board reviewer cannot open a PENDING report even for an in-queue patient")
+        @DisplayName("reviewer cannot open a PENDING report even for an in-queue patient")
         void reviewerDeniedPendingReport() {
-            Doctor medicalOnc = doctor(PhysicianDomain.MEDICAL_ONCOLOGY);
+            Doctor reviewer = reviewer();
             Patient p = patient();
             when(reviewRepository.findByPatientId(p.getId()))
                     .thenReturn(List.of(new TumorBoardReview()));
-
-            assertFalse(service.canViewReport(medicalOnc, report(p, Report.PhiReviewStatus.PENDING)));
+            assertFalse(service.canViewReport(reviewer, report(p, Report.PhiReviewStatus.PENDING)));
         }
 
         @Test
-        @DisplayName("tumor-board reviewer cannot open a REDACTION_NEEDED report")
+        @DisplayName("reviewer cannot open a REDACTION_NEEDED report")
         void reviewerDeniedRedactionNeededReport() {
-            Doctor medicalOnc = doctor(PhysicianDomain.MEDICAL_ONCOLOGY);
+            Doctor reviewer = reviewer();
             Patient p = patient();
             when(reviewRepository.findByPatientId(p.getId()))
                     .thenReturn(List.of(new TumorBoardReview()));
-
-            assertFalse(service.canViewReport(medicalOnc, report(p, Report.PhiReviewStatus.REDACTION_NEEDED)));
+            assertFalse(service.canViewReport(reviewer, report(p, Report.PhiReviewStatus.REDACTION_NEEDED)));
         }
 
         @Test
         @DisplayName("ADMIN can open a report regardless of PHI review status")
         void adminSeesUnapprovedReport() {
-            Doctor admin = doctor(PhysicianDomain.ADMIN);
-            assertTrue(service.canViewReport(admin, report(patient(), Report.PhiReviewStatus.PENDING)));
+            assertTrue(service.canViewReport(admin(), report(patient(), Report.PhiReviewStatus.PENDING)));
         }
     }
 
-    // ── helpers ────────────────────────────────────────────────────────────
+    // ── helpers (Builder.Default leaves unset capability flags false) ────────
 
+    /** Bare doctor with a domain and NO capabilities. */
     private Doctor doctor(PhysicianDomain domain) {
         return Doctor.builder().id(UUID.randomUUID()).domain(domain).build();
+    }
+
+    /** Sys-admin: finalize capability, no review/intake. */
+    private Doctor admin() {
+        return Doctor.builder().id(UUID.randomUUID())
+                .domain(PhysicianDomain.ADMIN).canFinalize(true).build();
+    }
+
+    /** Full physician Doctor: review + intake + finalize. */
+    private Doctor physician() {
+        return Doctor.builder().id(UUID.randomUUID())
+                .domain(PhysicianDomain.MEDICAL_ONCOLOGY)
+                .canReview(true).canIntake(true).canFinalize(true).build();
+    }
+
+    /** Medicine participant: review-only. */
+    private Doctor reviewer() {
+        return Doctor.builder().id(UUID.randomUUID())
+                .domain(PhysicianDomain.DIETICIAN_NUTRITION).canReview(true).build();
+    }
+
+    /** Referring-style: intake-only. */
+    private Doctor intakeOnly() {
+        return Doctor.builder().id(UUID.randomUUID())
+                .domain(PhysicianDomain.REFERRING_DOCTOR).canIntake(true).build();
     }
 
     private Patient patient() {

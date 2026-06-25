@@ -1,6 +1,5 @@
 package com.oncology.intake.config;
 
-import com.oncology.intake.entity.Doctor.PhysicianDomain;
 import com.oncology.intake.security.DoctorUserDetailsService;
 import com.oncology.intake.security.PatientAccountDetailsService;
 import lombok.RequiredArgsConstructor;
@@ -77,15 +76,6 @@ public class SecurityConfig {
     private final DoctorUserDetailsService doctorUserDetailsService;
     private final PatientAccountDetailsService patientAccountDetailsService;
 
-    /**
-     * Every staff role name (= {@link PhysicianDomain} enum names). Used instead
-     * of {@code authenticated()} so a ROLE_PATIENT session is rejected on staff
-     * surfaces — see class javadoc.
-     */
-    private static final String[] STAFF_ROLES = Arrays.stream(PhysicianDomain.values())
-            .map(Enum::name)
-            .toArray(String[]::new);
-
     /** Comma-separated list of origins allowed to call the dashboard (CORS). */
     @Value("${app.cors.allowed-origins:http://localhost:8080}")
     private String allowedOrigins;
@@ -159,25 +149,29 @@ public class SecurityConfig {
                 .requestMatchers("/dashboard/login").permitAll()
                 .requestMatchers("/css/**", "/js/**", "/images/**", "/favicon.ico").permitAll()
 
-                // role-restricted dashboard routes
+                // sys-admin routes (account management + PHI review) stay ADMIN.
                 .requestMatchers("/dashboard/doctors", "/dashboard/doctors/**")
-                    .hasRole("ADMIN")
-                .requestMatchers("/dashboard/protocol/*/approve")
                     .hasRole("ADMIN")
                 .requestMatchers("/admin/phi/**")
                     .hasRole("ADMIN")
                 .requestMatchers("/dashboard/reports/phi-review", "/dashboard/reports/*/phi-review")
                     .hasRole("ADMIN")
+
+                // capability-gated routes (PR: doctor capabilities):
+                //   intake  → CAN_INTAKE   (was REFERRING_DOCTOR-only)
+                //   finalize/send protocol → CAN_FINALIZE (was ADMIN-only)
                 .requestMatchers("/dashboard/patients/add")
-                    .hasRole("REFERRING_DOCTOR")
+                    .hasAuthority("CAN_INTAKE")
+                .requestMatchers("/dashboard/protocol/*/approve", "/dashboard/protocol/*/send")
+                    .hasAuthority("CAN_FINALIZE")
 
                 // everything else under /dashboard requires a STAFF login —
                 // NOT merely "authenticated" (a patient session is authenticated
-                // too; see class javadoc on role isolation).
-                .requestMatchers("/dashboard/**").hasAnyRole(STAFF_ROLES)
+                // too; every DoctorPrincipal carries ROLE_STAFF, patients don't).
+                .requestMatchers("/dashboard/**").hasRole("STAFF")
 
-                // anything not explicitly listed: staff only, deny patients by role
-                .anyRequest().hasAnyRole(STAFF_ROLES)
+                // anything not explicitly listed: staff only, deny patients
+                .anyRequest().hasRole("STAFF")
             )
 
             .formLogin(form -> form

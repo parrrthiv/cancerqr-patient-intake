@@ -95,6 +95,30 @@
                                    th:value="${editDoctor != null ? editDoctor.phone : ''}" placeholder="+1234567890">
                         </div>
                     </div>
+
+                    <!-- Capabilities (PR: doctor capabilities). A 'Doctor' = reviewer + intake +
+                         finalize; a 'medicine participant' = reviewer only. -->
+                    <div style="margin-top:4px;margin-bottom:6px">
+                        <div class="sec-label" style="margin-top:0">Capabilities</div>
+                        <div class="check-grid">
+                            <label class="check">
+                                <input type="checkbox" name="canReview" value="true"
+                                       th:checked="${editDoctor != null and editDoctor.canReview}">
+                                <span>Tumor-board reviewer</span>
+                            </label>
+                            <label class="check">
+                                <input type="checkbox" name="canIntake" value="true"
+                                       th:checked="${editDoctor != null and editDoctor.canIntake}">
+                                <span>Can do patient intake</span>
+                            </label>
+                            <label class="check">
+                                <input type="checkbox" name="canFinalize" value="true"
+                                       th:checked="${editDoctor != null and editDoctor.canFinalize}">
+                                <span>Can finalize protocols</span>
+                            </label>
+                        </div>
+                    </div>
+
                     <div class="flex gap-2" style="margin-top:6px">
                         <button type="submit" class="btn btn-primary">
                             <span th:text="${editDoctor != null ? 'Update Doctor' : 'Add Doctor'}">Add Doctor</span>
@@ -122,6 +146,11 @@
                         <td class="muted" th:text="${doc.username}">username</td>
                         <td>
                             <span class="badge badge-blue" th:text="${doc.domain.displayName}">Domain</span>
+                            <div class="flex gap-1 flex-wrap" style="margin-top:5px">
+                                <span th:if="${doc.canReview}" class="badge badge-teal" title="Tumor-board reviewer">Review</span>
+                                <span th:if="${doc.canIntake}" class="badge badge-green" title="Can do patient intake">Intake</span>
+                                <span th:if="${doc.canFinalize}" class="badge badge-gold" title="Can finalize protocols">Finalize</span>
+                            </div>
                         </td>
                         <td>
                             <div th:if="${doc.domain.name() == 'REFERRING_DOCTOR'}" class="flex items-center gap-2 flex-wrap">

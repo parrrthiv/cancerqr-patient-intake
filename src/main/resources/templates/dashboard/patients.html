@@ -31,7 +31,7 @@
 
         <div class="flex items-center justify-between mb-3">
             <h1 class="pg-title">👥 <span th:text="${doctor != null and doctor.domain.name() == 'REFERRING_DOCTOR'} ? 'My Patients' : 'All Patients'">All Patients</span></h1>
-            <a th:if="${doctor != null and doctor.domain.name() == 'REFERRING_DOCTOR'}"
+            <a th:if="${doctor != null and doctor.canIntake}"
                th:href="@{/dashboard/patients/add}" class="btn btn-green btn-sm">+ Add Patient</a>
         </div>
 
