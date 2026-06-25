@@ -17,6 +17,7 @@ import com.oncology.intake.repository.PatientRepository;
 import com.oncology.intake.repository.ReportRepository;
 import com.oncology.intake.security.WhatsAppNumberHasher;
 import com.oncology.intake.service.AnalysisService.PatientDietGuidance;
+import com.oncology.intake.service.PatientCarePlanService.PatientCarePlan;
 import com.oncology.intake.util.MediaValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -106,6 +107,7 @@ public class PatientPortalService {
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
     private final CancerQRProtocolConfig protocolConfig;
+    private final PatientCarePlanService patientCarePlanService;
 
     /**
      * Whether the portal may use the WhatsApp API for the account-takeover OTP.
@@ -595,6 +597,7 @@ public class PatientPortalService {
             long reviewsCompleted,
             long reviewsTotal,
             boolean protocolReady,
+            PatientCarePlan carePlan,           // approved plan (meds + diet); null pre-approval
             long unreadMessages,
             boolean expired
     ) {}
@@ -615,6 +618,10 @@ public class PatientPortalService {
 
         PatientDietGuidance guidance = analysisService.getPatientDietGuidance(patientId).orElse(null);
         boolean analysisReady = guidance != null;
+
+        // The approved care plan (medicines + diet) — non-null only once a
+        // finalize-capable doctor has approved/sent the protocol.
+        PatientCarePlan carePlan = patientCarePlanService.buildPatientCarePlan(patientId).orElse(null);
 
         List<StatusStep> steps = List.of(
                 step("Consent", Boolean.TRUE.equals(patient.getConsentGiven()),
@@ -641,6 +648,7 @@ public class PatientPortalService {
                 reviewsCompleted,
                 reviewsTotal,
                 protocolReady,
+                carePlan,
                 messageRepository.countByPatientIdAndReadAtIsNull(patientId),
                 state == ConversationState.EXPIRED
         );

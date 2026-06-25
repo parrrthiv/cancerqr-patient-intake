@@ -63,6 +63,7 @@ class PatientPortalServiceTest {
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private AuditService auditService;
     @Mock private CancerQRProtocolConfig protocolConfig;
+    @Mock private PatientCarePlanService patientCarePlanService;
 
     private PatientPortalService service;
 
@@ -72,7 +73,7 @@ class PatientPortalServiceTest {
                 accountRepository, patientRepository, reportRepository, protocolRepository,
                 messageRepository, doctorRepository, patientIntakeService, analysisService,
                 tumorBoardService, whatsAppClient, hasher, passwordEncoder, auditService,
-                protocolConfig);
+                protocolConfig, patientCarePlanService);
         // @Value field isn't populated by Spring in a plain Mockito test; default
         // the suite to "WhatsApp OTP ON" (production behaviour). The disabled-mode
         // tests flip it to false explicitly.

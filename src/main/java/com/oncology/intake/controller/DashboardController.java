@@ -10,7 +10,9 @@ import com.oncology.intake.security.PatientAccessService;
 import com.oncology.intake.security.WhatsAppNumberHasher;
 import com.oncology.intake.service.AuditService;
 import com.oncology.intake.service.PatientIntakeService;
+import com.oncology.intake.service.PatientCarePlanService;
 import com.oncology.intake.service.PatientMessageService;
+import com.oncology.intake.service.WhatsAppClientService;
 import com.oncology.intake.service.ReportDataExtractionAsyncRunner;
 import com.oncology.intake.service.StorageService;
 import com.oncology.intake.service.TumorBoardService;
@@ -78,6 +80,8 @@ public class DashboardController {
     private final PatientAccessService patientAccessService;
     private final WhatsAppNumberHasher whatsAppNumberHasher;
     private final PatientMessageService patientMessageService;
+    private final WhatsAppClientService whatsAppClient;
+    private final PatientCarePlanService patientCarePlanService;
 
     private static final String REFERRAL_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -970,6 +974,62 @@ public class DashboardController {
                 principal.getId(), protocolId, protocol.getPatient().getId());
         redirectAttributes.addFlashAttribute("success", "Protocol approved!");
         return "redirect:/dashboard/protocol/" + protocol.getPatient().getId();
+    }
+
+    /**
+     * Release the approved care plan to the patient (WhatsApp + portal). Finalize-
+     * capable doctors only (CAN_FINALIZE route gate + belt-and-braces check).
+     * Marks the protocol SENT; the portal copy is always available, so a WhatsApp
+     * delivery failure is non-fatal (flagged, not blocking).
+     */
+    @PostMapping("/protocol/{protocolId}/send")
+    public String sendProtocolToPatient(@PathVariable UUID protocolId,
+                                        @AuthenticationPrincipal DoctorPrincipal principal,
+                                        RedirectAttributes redirectAttributes) {
+        if (principal == null || !principal.isCanFinalize()) {
+            return "redirect:/dashboard";
+        }
+        FinalProtocol protocol = protocolRepository.findById(protocolId).orElse(null);
+        if (protocol == null || protocol.getPatient() == null) {
+            redirectAttributes.addFlashAttribute("error", "Protocol not found.");
+            return "redirect:/dashboard";
+        }
+        Patient patient = protocol.getPatient();
+        if (protocol.getStatus() != FinalProtocol.ProtocolStatus.APPROVED
+                && protocol.getStatus() != FinalProtocol.ProtocolStatus.SENT) {
+            redirectAttributes.addFlashAttribute("error", "Approve the protocol before sending it.");
+            return "redirect:/dashboard/protocol/" + patient.getId();
+        }
+
+        var planOpt = patientCarePlanService.buildPatientCarePlan(patient.getId());
+        if (planOpt.isEmpty()) {
+            redirectAttributes.addFlashAttribute("error", "No approved care plan to send.");
+            return "redirect:/dashboard/protocol/" + patient.getId();
+        }
+
+        boolean delivered = true;
+        try {
+            whatsAppClient.sendTextMessage(patient.getWhatsappNumber(),
+                    patientCarePlanService.formatCarePlanMessage(planOpt.get())).block();
+        } catch (Exception e) {
+            delivered = false;
+            log.warn("Care plan WhatsApp delivery failed for patient {}: {}",
+                    patient.getId(), e.getMessage());
+        }
+
+        protocol.setStatus(FinalProtocol.ProtocolStatus.SENT);
+        protocol.setSentToPatient(true);
+        protocol.setSentAt(LocalDateTime.now());
+        protocolRepository.save(protocol);
+
+        auditService.logDoctorAction(principal.getId(), patient.getId(),
+                AuditLog.AuditAction.PROTOCOL_SENT, "Care plan released to patient");
+
+        log.info("Doctor id={} sent care plan for patient id={}", principal.getId(), patient.getId());
+        redirectAttributes.addFlashAttribute(delivered ? "success" : "error",
+                delivered ? "Care plan sent to the patient."
+                        : "Marked sent — the patient can see it in the portal, but WhatsApp delivery failed.");
+        return "redirect:/dashboard/protocol/" + patient.getId();
     }
 
     // ── PHI Review Queue (Admin Only) ───────────────────────────────────
