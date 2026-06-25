@@ -293,9 +293,10 @@ Browser (Thymeleaf, CSRF-enabled forms)
     │  HTTPS via nginx → Spring Security form login
     ▼
 DashboardController  (/api/dashboard/*)
-    │  All routes default-deny: .anyRequest().authenticated()
-    │  Per-route role checks: ROLE_ADMIN for /doctors/**, /protocol/*/approve;
-    │                          ROLE_REFERRING_DOCTOR for /patients/add
+    │  All non-staff denied: catch-all is .hasRole("STAFF")
+    │  Gates: ROLE_ADMIN for /doctors/**, /reports/phi-review (sys-admin);
+    │         CAN_INTAKE for /patients/add; CAN_FINALIZE for
+    │         /protocol/*/approve and /protocol/*/send (capability flags, not roles)
     │
     ├─► PatientAccessService   (canViewPatient / canViewReport — IDOR enforcement)
     ├─► PatientRepository, DoctorRepository, TumorBoardReviewRepository
@@ -350,10 +351,10 @@ App context path is `/api`. All routes below relative to `/api`.
 | `StorageService` | S3 / local / MinIO strategy. S3 PutObject sets `ServerSideEncryption.AES256`. AWS SDK uses default credentials chain → EC2 IAM role when no static keys are configured. |
 | `FormulaEngine` | Loads `formula-rules.yml` once at `@PostConstruct`. Computes derived metrics + 5 categories of recommendations + alerts. |
 | `TumorBoardService` | Per-domain review queue. `getUnassignedReviewsForDomain` uses indexed SQL (was `findAll().stream().filter(...)`). Static helper `buildReviewStatus(reviews)` lets callers compute status without re-querying. |
-| `PatientAccessService` | Single source of truth for "can doctor X see patient Y / report Z." ADMIN sees all; REFERRING_DOCTOR sees only their own; 8 tumor-board domains see patients with at least one review on file. |
+| `PatientAccessService` | Single source of truth for "can doctor X see patient Y / report Z." **Capability-union** (a doctor may hold several): ADMIN or `canFinalize` see all; `canReview` sees patients with a review on file; `canIntake` sees only patients they intook. `canViewReport` keeps the PHI gate (only ADMIN bypasses; others APPROVED-only). |
 | `PhiEncryptor` + `EncryptedStringConverter` | AES-256-GCM column encryption. Multi-key: reads `PHI_ENCRYPTION_KEY` (back-compat v1) and `PHI_ENCRYPTION_KEY_V1..V20`; writes under the highest-numbered key (`{enc:v<N>}`), decrypts any version; absence-of-prefix = legacy plaintext (graceful migration). Applied to `Patient.name/whatsappNumber`, numeric PHI (`weightKg`, `painScale`, `effectivePainScale`, `esrValue`, `crpValue`, `cancerStage` via `EncryptedBigDecimalConverter`/`EncryptedIntegerConverter`), and `Doctor.fullName/email/phone`. Rotation driven by `PhiRotationController` (`/admin/phi/state`, `/admin/phi/rotate`). |
 | `WhatsAppNumberHasher` + `PatientHashListener` | HMAC-SHA256 of the normalised WhatsApp number → `patients.whatsapp_number_hash` (unique). Lets `findByWhatsappNumberHash` do equality lookups against the encrypted column. JPA `@PrePersist/@PreUpdate` listener computes the hash. Fails fast in prod if `PHI_HMAC_KEY` unset. |
-| `DoctorPrincipal` + `DoctorUserDetailsService` | Spring Security UserDetails wrapping Doctor. `DelegatingPasswordEncoder` (bcrypt + noop legacy) auto-upgrades on login. |
+| `DoctorPrincipal` + `DoctorUserDetailsService` | Spring Security UserDetails wrapping Doctor. Authorities: `ROLE_STAFF` (always) + `ROLE_<domain>` (incl. `ROLE_ADMIN`) + capability authorities `CAN_INTAKE`/`CAN_FINALIZE`/`CAN_REVIEW`. `DelegatingPasswordEncoder` (bcrypt + noop legacy) auto-upgrades on login. |
 | `AsyncConfig` | `@EnableAsync` lives here (not on main app class) so `AsyncUncaughtExceptionHandler` can wire in. Increments `async.errors{method=...}` Micrometer counter on every uncaught async exception. |
 
 ---
@@ -394,8 +395,9 @@ App context path is `/api`. All routes below relative to `/api`.
 What's wired and how to keep it that way:
 
 - **Authentication**: Spring Security form login via `DoctorUserDetailsService`. BCrypt via `DelegatingPasswordEncoder`. Legacy `{noop}` rows auto-upgrade to `{bcrypt}` on next successful login.
-- **Authorization (read)**: Default-deny on `/dashboard/**`. Per-route role checks for ADMIN and REFERRING_DOCTOR. `PatientAccessService` is the single source of truth for per-patient/per-report access — call it from every new read endpoint.
-- **Authorization (write)**: `submitReview` clean-redirects on wrong domain (was: 500 stack trace). `approveProtocol` is admin-only at both filter and controller level.
+- **Authorization (read)**: catch-all on `/dashboard/**` is `hasRole("STAFF")` (every `DoctorPrincipal` carries `ROLE_STAFF`; patients don't). `PatientAccessService` is the single source of truth for per-patient/per-report access — call it from every new read endpoint.
+- **Authorization (write)**: `submitReview` clean-redirects on wrong domain. **Capability model (PR: doctor capabilities, V11):** `Doctor` has flags `can_review`/`can_intake`/`can_finalize` decoupled from `PhysicianDomain`; principal emits `CAN_INTAKE`/`CAN_FINALIZE`/`CAN_REVIEW` authorities. Intake (`/patients/add`) is `CAN_INTAKE`-gated (was REFERRING_DOCTOR); finalize + send (`/protocol/*/approve`, `/protocol/*/send`) are `CAN_FINALIZE`-gated (was ADMIN-only) — any Doctor can finalize. ADMIN stays the sys-admin for doctor management + PHI review. A "medicine participant" = `can_review` only (integrative reviewer). Both layers (filter + controller) check the capability.
+- **Patient medicine visibility**: patients see **diet-only** until a finalize-capable doctor approves the `FinalProtocol`; then `PatientCarePlanService` exposes the approved medicines + diet (portal "Your care plan" card + the `/protocol/*/send` WhatsApp push). Pre-approval diet-only formatter (`AnalysisService`) is unchanged — never show medicines from an unapproved protocol.
 - **CSRF**: Enabled with plain `CsrfTokenRequestAttributeHandler`. Excluded only for `/webhook/whatsapp/**` (Meta can't carry our token; HMAC is the auth) and `/admin/test/**` (dev-only). All Thymeleaf forms use `th:action`, which auto-injects the token.
 - **Webhook signature**: HMAC-SHA256 over the raw body, constant-time compared to `X-Hub-Signature-256`. Never declare two `@RequestBody` parameters on the same handler — body is non-rewindable.
 - **Cookies**: `Secure` (production), `HttpOnly`, `SameSite=Lax`. `JSESSIONID` deleted on logout.
@@ -450,6 +452,7 @@ Migration history (current):
 - `V8__encrypt_numeric_phi.sql` (PR 11) — alters `weight_kg`, `pain_scale`, `effective_pain_scale`, `esr_value`, `crp_value`, `cancer_stage` to `VARCHAR(500)` via `USING ::TEXT` (now hold ciphertext)
 - `V9__add_phi_review_to_reports.sql` (PR 13) — adds `phi_review_status VARCHAR(30) NOT NULL DEFAULT 'PENDING'`, `phi_reviewed_by_doctor_id UUID`, `phi_reviewed_at TIMESTAMP`, index on `phi_review_status`
 - `V10__patient_portal.sql` (patient portal) — adds `patient_accounts` (portal login: encrypted phone + HMAC `phone_hash`, bcrypt password, WhatsApp-OTP columns) and `patient_messages` (doctor → patient, encrypted body)
+- `V11__doctor_capabilities.sql` (doctor capabilities) — adds `can_review`/`can_intake`/`can_finalize BOOLEAN NOT NULL DEFAULT false` to `doctors`; backfills from `domain` (physician oncology → all three; integrative → review-only; REFERRING_DOCTOR → intake; ADMIN → finalize)
 
 When adding a migration: increment the V number. NEVER edit a migration that's already been applied to production. NOTE: V7–V9 have NOT yet been applied to the test RDS — they run on the next deploy.
 
